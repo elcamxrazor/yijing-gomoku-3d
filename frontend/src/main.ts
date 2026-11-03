@@ -1154,7 +1154,9 @@ class YijingApp {
       this.sounds.play('join');
     }
     // agreement 不抛硬币，先手结果由 render() 写进 opening-status。
-    await this.delay(this.reducedMotion ? 950 : 1700);
+    // 硬币需要更长的停留：停稳后镜头还要推近，玩家得看清名字。
+    const holdMs = this.reducedMotion ? 950 : (result.method === 'coin' ? 2400 : 1700);
+    await this.delay(holdMs);
     if (token !== this.openingToken) return;
     this.finishOpening();
   }
@@ -1480,16 +1482,17 @@ class YijingApp {
     if (!this.snapshot || this.snapshot.id !== event.gameId) return;
     this.scene.ringBell();
     this.sounds.play('bell');
-    toast(`「${event.fromName}」按铃催你落子`);
+    // 同一个 key：连点器把铃按成一片时，提示条只保留最新的一条，
+    // 不会向上堆成一堵墙挡住棋盘、妨碍落子。
+    toast(`「${event.fromName}」按铃催你落子`, 'info', 'ring');
   }
 
   /**
    * 桌上那口铜铃被按了。本地立刻响，再把铃声送到对面。
    *
-   * 连点友好：这里不再做本地防抖/节流——每次有效点击都立刻播放铃动画与音效，
-   * 并发送协议。真正的节流只由服务端冷却负责（见后端 `game.py` 的 `ring`），
-   * 它只挡转发、不报错，所以手快的人也能看到自己每次按铃的反馈，只是对面
-   * 不会收到太密集的铃声。
+   * 连点友好：本地不做防抖 / 节流——每次有效点击都立刻播放铃动画与音效并发协议。
+   * 服务端默认也不限制频率（`RING_COOLDOWN_SECONDS=0`），连点器会逐次送达对面；
+   * 若要把冷却调回来，改后端环境变量即可，前端无需改动。
    */
   private ringBell(): void {
     this.sounds.play('bell');
@@ -1968,8 +1971,8 @@ class YijingApp {
     bubble.append(name, text);
     layer.append(bubble);
 
-    // 连点保护：气泡过多时移除最早的，避免刷屏（计时器随后会自行清理）。
-    while (layer.childElementCount > 3) {
+    // 同时最多显示两条：第三条进来时挤掉最早的一条，既看得清又不刷屏。
+    while (layer.childElementCount > 2) {
       layer.firstElementChild?.remove();
     }
 
