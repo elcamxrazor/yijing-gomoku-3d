@@ -1,0 +1,46 @@
+# dependencies
+frontend/node_modules/
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# build output
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# runtime data and secrets
+data/
+backend/data/
+.env
+*.db
+*.db-journal
+*.db-wal
+
+# engines are downloaded separately and must never be committed
+engines/*
+!engines/README.md
+
+# radio library: the user's own music, never committed
+radio/*
+!radio/README.md
+
+# 测试与截图产物（Playwright 实拍、可视化对比图），不属于源码
+frontend/uitest/out/
+frontend/uitest/shots/
+frontend/shots/
+
+# Rapfi 上游引擎源码：体积大（~125M）且内部带多个嵌套 .git 子模块，
+# 只用于重新编译 WASM；运行时用的是 frontend/public/engine 里已构建好的版本。
+# 需要重建时按 tools/build_rapfi_wasm.sh 的说明从上游克隆。
+tools/rapfi/
+
+# 本仓库是 WorkBuddy 的工作区，.workbuddy 里是本地记忆与运行日志，
+# 不属于项目源码，发布时不应外传。
+.workbuddy/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
