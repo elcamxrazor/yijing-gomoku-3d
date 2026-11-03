@@ -23,10 +23,11 @@ or source code were copied from another game.
 
 前端引擎为 [Rapfi](https://github.com/dhbloo/rapfi)（Gomocup 顶尖引擎）的
 **Emscripten WASM 构建**（multi-simd128 / single-simd128 两变体 + mix9svq 无禁手权重）。
-Rapfi 以 **GNU GPL v3** 授权：本项目按 GPL 要求保留其版权与许可声明，
-引擎源码位于 `tools/rapfi/`（含构建脚本 `tools/build_rapfi_wasm.sh`），
-构建产物在 `frontend/public/engine/`。任何人索取本应用源码时，
-必须同步提供引擎对应的完整源码（指向官方仓库即可满足）。
+Rapfi 以 **GNU GPL v3** 授权：本项目保留其版权与许可声明。构建产物位于
+`frontend/public/engine/`；**本仓库不包含 Rapfi 源码树**（体积大且含上游子模块），
+对应源码由官方仓库 <https://github.com/dhbloo/rapfi> 提供。重新构建时，
+按 `tools/build_rapfi_wasm.sh` 的说明把上游源码放入 `tools/rapfi/` 后再运行。
+依 GPL，任何人取得本应用的 WASM 构建产物时，均可从上述官方仓库获取对应源码。
 
 ## Yixin engine（已退役）
 

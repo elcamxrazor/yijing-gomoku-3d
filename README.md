@@ -1,8 +1,12 @@
 # 弈境 · Yijing Gomoku
 
+![Made by DeepSeek V4.1 Flash 1017](https://img.shields.io/badge/made_by-DeepSeek_V4.1_Flash_1017-4D6BFE?style=flat-square)
+
 一个原创的 3D 禅意网页五子棋：木纹棋盘、黑白高光棋子、柔和光影、程序化音效，支持本地对弈、AI 对弈和好友联机。前端使用 Vite + TypeScript + Three.js；AI 由 **Rapfi 引擎的 WASM 构建**直接在浏览器里运行（实时思考信息可视化），后端使用 FastAPI 负责认证、房间与权威规则。
 
 项目使用 Poly Haven 的 CC0 素材（HDRI 环境光 / PBR 材质 / 扫描模型）构建真实场景，棋盘与棋子仍为程序化生成；音效由 Web Audio 合成，UI 为原创设计。第三方素材授权见 THIRD_PARTY_NOTICES.md。
+
+> **开发说明**：本项目完全由 AI 模型 **DeepSeek V4.1 Flash 1017** 完成——包括前端与后端代码、3D 棋境与棋子、UI、音效、测试与文档。
 
 ## 功能
 
@@ -348,7 +352,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 25562
 
 NNUE 权重（mix9svq 无禁手 15 路，约 10MB）随构建打包为 `engine/rapfi.data`，
 首次进入人机对局时由浏览器下载，之后走缓存。老浏览器（无 WASM SIMD）会收到
-友好提示。重新构建引擎：安装 emsdk 后运行 `tools/build_rapfi_wasm.sh`。
+友好提示。重新构建引擎：安装 emsdk 后，按 `tools/build_rapfi_wasm.sh` 的说明把
+[Rapfi 上游源码](https://github.com/dhbloo/rapfi) 克隆到 `tools/rapfi/`，再运行该脚本。
+本仓库**不包含** Rapfi 源码树（体积大且含上游子模块），只提交编译好的 WASM。
 
 检查状态：
 
@@ -364,8 +370,10 @@ curl http://127.0.0.1:25562/api/health
 - 坐标转换：本项目 `(row, col)` ↔ Gomocup `(x=col, y=row)`，均为 0 基（实测确认）。
 - INFO 流（`INFO DEPTH/EVAL/WINRATE/BESTLINE`）由客户端逐行解析，
   驱动状态栏思考面板与棋盘上的实时提示环。
-- GPL 合规：引擎源码见 `tools/rapfi/`，分发本应用时须同步提供引擎源码
-  （指向官方仓库即可），详见 `THIRD_PARTY_NOTICES.md`。
+- GPL 合规：本仓库分发的 `frontend/public/engine/*` 是 Rapfi（**GPL-3.0**）的编译产物，
+  其对应源码可从上游 [dhbloo/rapfi](https://github.com/dhbloo/rapfi) 获取；重新构建时把上游源码
+  放入 `tools/rapfi/` 再运行 `tools/build_rapfi_wasm.sh`。本仓库不含 Rapfi 源码树，
+  详见 `THIRD_PARTY_NOTICES.md`。
 - 引擎与前端的命令通道在 `src/engine/rapfiClient.ts`；扩展命令直接加在客户端，无需后端配合。
 
 ## 账号与联机
@@ -767,8 +775,11 @@ ss -ltnp | grep 25562
 
 确认代理转发了 `Upgrade` 和 `Connection` 头，并提高读超时。参考 `deploy/nginx.conf`。
 
-## 版权
+## 版权与许可
 
-项目代码与视觉为原创实现。第三方依赖与 Rapfi（GPL-3.0）的授权说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目原创代码与视觉以 **MIT License** 发布，详见 [LICENSE](LICENSE)。第三方依赖与素材的授权见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-Rapfi WASM 引擎（GPL-3.0）随仓库分发于 `frontend/public/engine/`，源码见 `tools/rapfi/`。
+Rapfi WASM 引擎（**GPL-3.0**）随仓库分发于 `frontend/public/engine/`；其对应源码来自上游
+[Rapfi](https://github.com/dhbloo/rapfi)。本仓库不包含 Rapfi 源码树，重新构建请按
+`tools/build_rapfi_wasm.sh` 的说明将上游源码放入 `tools/rapfi/` 后再构建。
