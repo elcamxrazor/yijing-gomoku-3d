@@ -1,0 +1,6 @@
+# Host-level Caddy example. Point the domain's DNS at this server first.
+# Caddy obtains and renews the certificate automatically on ports 80/443.
+gomoku.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:25562
+}

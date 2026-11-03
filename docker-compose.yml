@@ -1,0 +1,43 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yijing-gomoku:latest
+    container_name: yijing-gomoku
+    restart: unless-stopped
+    ports:
+      - "25562:25562"
+    environment:
+      PORT: "25562"
+      DATABASE_URL: "sqlite:////app/data/gomoku.db"
+      SESSION_TTL_HOURS: "${SESSION_TTL_HOURS:-168}"
+      RECONNECT_GRACE_SECONDS: "${RECONNECT_GRACE_SECONDS:-120}"
+      AI_IDLE_RELEASE_SECONDS: "${AI_IDLE_RELEASE_SECONDS:-300}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      # Leave empty for account/online play without AI. AI needs a runnable
+      # engine: native Windows, or a custom Wine-enabled image on Linux.
+      YIXIN_ENGINE_PATH: "${YIXIN_ENGINE_PATH:-}"
+      YIXIN_LAUNCHER: "${YIXIN_LAUNCHER:-}"
+      YIXIN_PROTOCOL: "${YIXIN_PROTOCOL:-gomocup}"
+      YIXIN_TIMEOUT_TURN_MS: "${YIXIN_TIMEOUT_TURN_MS:-5000}"
+      YIXIN_TIMEOUT_MATCH_MS: "${YIXIN_TIMEOUT_MATCH_MS:-300000}"
+      YIXIN_MAX_SESSIONS: "${YIXIN_MAX_SESSIONS:-8}"
+      # 网络电台曲库：宿主机目录以只读方式挂到 /radio。
+      RADIO_DIR: "/radio"
+    volumes:
+      - ./data:/app/data
+      - "${YIXIN_ENGINE_DIR:-./engines}:/engines:ro"
+      - "${RADIO_DIR_HOST:-./radio}:/radio:ro"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:25562/api/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
