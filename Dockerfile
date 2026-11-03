@@ -20,7 +20,6 @@ COPY backend/app ./app
 COPY --from=web /web/dist ./frontend/dist
 RUN mkdir -p /app/data
 EXPOSE 25562
-# Yixin is not bundled. It is licensed for non-commercial use only; mount it at
-# runtime and set YIXIN_ENGINE_PATH. A Linux container needs a Wine-based image
-# to execute the Windows engine, or run the backend natively on Windows.
+# AI 引擎（Rapfi WASM）在浏览器端运行，镜像里不需要任何引擎二进制或 Wine。
+# 前端构建产物（含 public/engine/*）已由上面的 web 阶段复制进 ./frontend/dist。
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "25562"]

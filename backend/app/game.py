@@ -817,7 +817,8 @@ class GameService:
 
         桌面上那口铜铃唯一的用处：提醒对方「该你了」。它不改变任何棋局状态，
         所以不需要加锁，也不需要落库——一次响铃就是一个转瞬即逝的事件。
-        冷却按对局算而不是按人算：两个人对着按只会变成噪音。
+        冷却按对局算而不是按人算；`ring_cooldown_seconds` 设为 0 时不做限制，
+        连按 / 连点器都会逐次转发给对手。
         """
         with self.db.session() as session:
             game = self._load(session, game_id)
@@ -905,7 +906,7 @@ class GameService:
     AI_REQUEST_TTL_SECONDS = 60.0
 
     async def ai_analysis_request(self, user, game_id: str) -> dict:
-        """发起「请 Yixin 分析当前局面」的请求，等对方同意后才真正调用引擎。
+        """发起「请 AI 分析当前局面」的联机请求，等对方同意后才由请求方前端引擎计算。
 
         与按铃、短语一样不改变棋局状态，也不落库：请求只活在内存里，
         超时或对局结束就自然消失。同一盘棋同时只允许一个在途请求，
@@ -935,10 +936,9 @@ class GameService:
         return {"accepted": True}
 
     async def ai_analysis_response(self, user, game_id: str, accept: bool) -> dict:
-        """被请求方表态：同意则调 Yixin 分析当前局面并广播建议一手。
+        """被请求方表态：同意后广播结果，由请求方的浏览器端 Rapfi 引擎计算建议点。
 
-        引擎调用放在锁外：分析可能耗时数秒，抱着对局锁会让双方连落子都卡住。
-        分析与落子互不干扰——它不写任何棋盘状态，最坏情况只是建议过时。
+        分析不改变任何棋盘状态，因此与落子互不干扰；最坏情况只是建议过时。
         """
         # 先验参与者身份再动请求表：路人的乱回应不该把在途请求吃掉。
         with self.db.session() as session:

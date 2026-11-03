@@ -123,6 +123,8 @@ def test_disconnect_is_not_counted_while_the_opponent_is_also_away(settings):
 
 
 def test_ring_forwarded_to_opponent_and_rate_limited(app):
+    # 默认冷却为 0（可连按）。这里显式开启冷却，专门验证限流分支仍然有效。
+    app.state.games.settings.ring_cooldown_seconds = 2.5
     with TestClient(app) as alice_client, TestClient(app) as bob_client, TestClient(app) as cara_client:
         register(alice_client, "alice")
         register(bob_client, "bob")
@@ -158,6 +160,11 @@ def test_ring_forwarded_to_opponent_and_rate_limited(app):
             assert receive_request(bob, "ring3")["payload"]["accepted"] is True
             back = receive_until(alice, lambda m: m["type"] == "game.ring")["payload"]
             assert back["fromName"] == "bob" and back["color"] == 2
+
+
+def test_ring_cooldown_defaults_to_zero(settings):
+    """默认不限制催铃频率：连按（含连点器）每次都会转发给对手。"""
+    assert settings.ring_cooldown_seconds == 0
 
 
 def test_ring_rejected_outside_a_live_online_game(app):

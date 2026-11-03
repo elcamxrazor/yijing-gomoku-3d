@@ -268,7 +268,7 @@ export class RapfiClient {
 
     return new Promise((resolve, reject) => {
       this.pending = { resolve, reject };
-      let side = 1; // 黑先；Gomocup 坐标惯例 (x=col, y=row)，与后端 Yixin 适配一致
+      let side = 1; // 黑先；Gomocup 坐标惯例 (x=col, y=row)，与后端规则坐标一致
       let command = 'BOARD';
       for (const move of moves) {
         command += ` ${move.col},${move.row},${side}`;

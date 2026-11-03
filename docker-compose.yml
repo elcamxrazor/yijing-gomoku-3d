@@ -13,23 +13,17 @@ services:
       DATABASE_URL: "sqlite:////app/data/gomoku.db"
       SESSION_TTL_HOURS: "${SESSION_TTL_HOURS:-168}"
       RECONNECT_GRACE_SECONDS: "${RECONNECT_GRACE_SECONDS:-120}"
-      AI_IDLE_RELEASE_SECONDS: "${AI_IDLE_RELEASE_SECONDS:-300}"
+      # 铜铃冷却（秒）。0 = 不限制，允许连按 / 连点器连续催铃。
+      RING_COOLDOWN_SECONDS: "${RING_COOLDOWN_SECONDS:-0}"
+      CHALLENGE_TTL_SECONDS: "${CHALLENGE_TTL_SECONDS:-30}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       TRUST_PROXY: "${TRUST_PROXY:-false}"
       CORS_ORIGINS: "${CORS_ORIGINS:-}"
-      # Leave empty for account/online play without AI. AI needs a runnable
-      # engine: native Windows, or a custom Wine-enabled image on Linux.
-      YIXIN_ENGINE_PATH: "${YIXIN_ENGINE_PATH:-}"
-      YIXIN_LAUNCHER: "${YIXIN_LAUNCHER:-}"
-      YIXIN_PROTOCOL: "${YIXIN_PROTOCOL:-gomocup}"
-      YIXIN_TIMEOUT_TURN_MS: "${YIXIN_TIMEOUT_TURN_MS:-5000}"
-      YIXIN_TIMEOUT_MATCH_MS: "${YIXIN_TIMEOUT_MATCH_MS:-300000}"
-      YIXIN_MAX_SESSIONS: "${YIXIN_MAX_SESSIONS:-8}"
+      # AI 引擎在浏览器端运行，容器无需任何引擎配置。
       # 网络电台曲库：宿主机目录以只读方式挂到 /radio。
       RADIO_DIR: "/radio"
     volumes:
       - ./data:/app/data
-      - "${YIXIN_ENGINE_DIR:-./engines}:/engines:ro"
       - "${RADIO_DIR_HOST:-./radio}:/radio:ro"
     healthcheck:
       test:
