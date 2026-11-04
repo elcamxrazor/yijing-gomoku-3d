@@ -27,7 +27,9 @@ import type { ReplayRecord, ReplaySummary } from './game/replay';
 import { canContinueFrom, continuePly, firstMoverNote, presetFrom } from './game/continue';
 import { phraseText } from './shop/phrases';
 import {
-  type UserProfile, SHOP_ITEMS, POINTS_PER_GAME, loadProfile, applyWallet,
+  type ShopCategory, type ShopItem, type ShopKind, type UserProfile,
+  SHOP_CATEGORIES, SHOP_ITEMS, POINTS_PER_GAME,
+  loadProfile, applyWallet,
   saveProfile,
   equipMaterial, isUnlocked, isSceneUnlocked,
 } from './shop/store';
@@ -137,6 +139,8 @@ class YijingApp {
 
   /** 本地用户档案（积分 / 已解锁 / 已装备）。仅影响外观，存于 localStorage。 */
   private readonly profile: UserProfile = loadProfile();
+  /** 商城当前选中的分类（切标签时不重新打开弹窗，只重绘内容）。 */
+  private shopCategory: ShopCategory = 'pieces';
   /** 快捷短语气泡的自动移除计时器，退出对局时统一清理，避免泄漏。 */
   private readonly phraseTimers: number[] = [];
   /** 开局「决定先后手」协商的当前状态；揭晓后为 null。 */
@@ -1862,35 +1866,47 @@ class YijingApp {
     required<HTMLDialogElement>('shop-dialog').showModal();
   }
 
-  /** 重绘商城内容：积分、材质、棋境三类商品。 */
+  /**
+   * 重绘商城内容：棋子 / 棋盘 / 实物三个分类用分段标签来回切换，
+   * 与「复盘」菜单的 全部 / 已收藏 同款交互，一次只显示一类。
+   */
   private renderShop(): void {
     const content = required('shop-content');
     const points = this.profile.points;
+    const active = this.shopCategory;
 
-    const items = SHOP_ITEMS.map((item) => {
-      const unlocked = isUnlocked(this.profile, item.id);
-      const tag = this.shopItemTag(item.id);
-      const swatch = this.shopSwatch(item.target, item.kind, item.swatch);
-      const action = this.shopActionButton(item, unlocked);
+    const tabs = SHOP_CATEGORIES.map((category) => {
+      const selected = category.id === active;
       return (
-        `<div class="shop-item${tag === 'equipped' ? ' is-equipped' : ''}">` +
-        `<span class="shop-swatch" style="${swatch}"></span>` +
-        `<div class="shop-meta"><div class="shop-name">${item.name}${tag === 'equipped' ? '<span class="shop-tag">已装备</span>' : ''}</div>` +
-        `<div class="shop-desc">${item.description}</div></div>` +
-        `<div class="shop-action">${action}</div>` +
-        `</div>`
+        `<button type="button" role="tab" data-shop-tab="${category.id}"` +
+        ` aria-selected="${selected}"${selected ? ' class="active"' : ''}>${category.name}</button>`
       );
     }).join('');
+
+    const items = SHOP_ITEMS.filter((item) => item.category === active);
+    const list = items.length
+      ? items.map((item) => this.renderShopItem(item)).join('')
+      : '<p class="shop-empty">暂无商品，敬请期待。</p>';
 
     content.innerHTML = `
       <div class="shop-head">
         <h2>弈境商城</h2>
         <span class="shop-points">积分 <strong>${points}</strong></span>
       </div>
-      <p class="modal-subtitle" style="margin:0 0 4px">每下完一局可得 ${POINTS_PER_GAME} 积分，可解锁特殊棋子；所有棋境免费选择。</p>
-      <p class="shop-section-title">棋子材质</p>
-      <div class="shop-list">${items}</div>
+      <p class="modal-subtitle" style="margin:0 0 4px">每下完一局可得 ${POINTS_PER_GAME} 积分，可兑换棋子与实物；所有棋境免费选择。</p>
+      <div class="segmented shop-tabs" role="tablist" aria-label="商品分类">${tabs}</div>
+      <div class="shop-list">${list}</div>
     `;
+
+    // 分类切换：只换内容，不重开弹窗。
+    content.querySelectorAll<HTMLButtonElement>('[data-shop-tab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const next = button.dataset.shopTab as ShopCategory | undefined;
+        if (!next || next === this.shopCategory) return;
+        this.shopCategory = next;
+        this.renderShop();
+      });
+    });
 
     // 行为按钮是动态生成的，单独绑定，避免重复绑定。
     content.querySelectorAll<HTMLButtonElement>('[data-shop-action]').forEach((button) => {
@@ -1900,6 +1916,23 @@ class YijingApp {
         if (action && itemId) this.handleShopAction(action, itemId);
       });
     });
+  }
+
+  /** 单件商品卡片。有商品图的走图片缩略图，没有的走色块。 */
+  private renderShopItem(item: ShopItem): string {
+    const unlocked = isUnlocked(this.profile, item.id);
+    const tag = this.shopItemTag(item.id);
+    const thumb = item.image
+      ? `<img class="shop-swatch shop-photo" src="${item.image}" alt="${item.name}" loading="lazy" />`
+      : `<span class="shop-swatch" style="${this.shopSwatch(item.target, item.kind, item.swatch)}"></span>`;
+    return (
+      `<div class="shop-item${tag === 'equipped' ? ' is-equipped' : ''}">` +
+      thumb +
+      `<div class="shop-meta"><div class="shop-name">${item.name}${tag === 'equipped' ? '<span class="shop-tag">已装备</span>' : ''}</div>` +
+      `<div class="shop-desc">${item.description}</div></div>` +
+      `<div class="shop-action">${this.shopActionButton(item, unlocked)}</div>` +
+      `</div>`
+    );
   }
 
   /** 商品当前状态：装备中 / 已解锁 / 锁定（用于标签与按钮文案）。 */
@@ -1915,7 +1948,7 @@ class YijingApp {
   }
 
   /** 商品缩略色块：材质用其自身颜色（或指定的展示色），棋境用预设的代表色。 */
-  private shopSwatch(target: string, kind: 'material' | 'scene', display?: string): string {
+  private shopSwatch(target: string, kind: ShopKind, display?: string): string {
     if (display) return `background:${display}`;
     if (kind === 'material') {
       const def = STONE_MATERIALS[target];
@@ -1932,13 +1965,14 @@ class YijingApp {
   }
 
   /** 生成单个商品的按钮：解锁 / 装备 / 取消装备 / 积分不足。 */
-  private shopActionButton(item: { id: string; price: number; kind: 'material' | 'scene' }, unlocked: boolean): string {
+  private shopActionButton(item: { id: string; price: number; kind: ShopKind }, unlocked: boolean): string {
     if (!unlocked) {
       const affordable = this.profile.points >= item.price;
       const label = `解锁 · ${item.price}`;
       return `<button class="shop-btn primary" data-shop-action="unlock" data-item="${item.id}"${affordable ? '' : ' disabled'}>${label}</button>`;
     }
-    if (item.kind === 'scene') {
+    // 只有材质能装备；棋境与实物买完即「已解锁」。
+    if (item.kind !== 'material') {
       return `<button class="shop-btn" data-shop-action="noop" disabled>已解锁</button>`;
     }
     const tag = this.shopItemTag(item.id);

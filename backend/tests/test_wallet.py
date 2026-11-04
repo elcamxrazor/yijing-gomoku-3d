@@ -52,6 +52,19 @@ def test_finish_awards_points_to_humans(app, client: TestClient):
     assert wallet["points"] == 10000 + wallet["pointsPerGame"]
 
 
+def test_physical_goods_redeem_and_cannot_be_equipped(client: TestClient):
+    """实物商品（小米SU7，10 积分）能兑换，但不能被当成棋子材质装备。"""
+    register(client, "redeemer")
+    bought = client.post("/api/shop/purchase", json={"item_id": "goods-xiaomi-su7"})
+    assert bought.status_code == 200, bought.text
+    assert bought.json()["points"] == 10000 - 10
+    assert "goods-xiaomi-su7" in bought.json()["unlocked"]
+
+    # 实物没有可装备目标：空材质 id 必须被拒，不能借目录里的空 target 蒙混过关。
+    denied = client.post("/api/shop/equip", json={"material_black": "", "material_white": "solid-white"})
+    assert denied.status_code == 403
+
+
 def test_wallet_unlock_persists_into_profile_cache(client: TestClient):
     """前端把 unlocked 缓存进档案：这里只验证服务端列表可被原样读回。"""
     register(client, "keeper")

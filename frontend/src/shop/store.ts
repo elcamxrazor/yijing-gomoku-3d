@@ -29,24 +29,37 @@ const PROFILE_VERSION = 3;
 const MAX_SETTLED = 120;
 
 /** 商城商品类型。 */
-export type ShopKind = 'material' | 'scene';
+export type ShopKind = 'material' | 'scene' | 'physical';
+
+/** 商城分类：棋子 / 棋盘 / 实物（顺序即展示顺序）。 */
+export type ShopCategory = 'pieces' | 'boards' | 'physical';
+
+export const SHOP_CATEGORIES: { id: ShopCategory; name: string }[] = [
+  { id: 'pieces', name: '棋子' },
+  { id: 'boards', name: '棋盘' },
+  { id: 'physical', name: '实物' },
+];
 
 /** 一件商城商品的定义（静态配置，不进库）。 */
 export interface ShopItem {
   /** 商品 id（落库记录解锁状态用）。 */
   id: string;
-  /** 商品类型：材质 or 棋境。 */
+  /** 商品类型：材质 / 棋境 / 实物。 */
   kind: ShopKind;
+  /** 所属分类（商城按分类分区展示）。 */
+  category: ShopCategory;
   /** 商品名。 */
   name: string;
   /** 价格（积分）。 */
   price: number;
-  /** 材质类：对应的材质 id；棋境类：对应的棋境 id。 */
+  /** 材质类：对应的材质 id；棋境类：对应的棋境 id；实物类为空串。 */
   target: string;
-  /** 材质类：作用方（黑 / 白）；棋境类为 null。 */
+  /** 材质类：作用方（黑 / 白）；棋境类与实物类为 null。 */
   side: 'black' | 'white' | null;
   /** 一句话说明。 */
   description: string;
+  /** 实物类：商品图（public 下的路径）。缩略图优先于色块。 */
+  image?: string;
   /**
    * 商城色块展示色（可选）。缺省用材质自身的 `color`。
    *
@@ -69,11 +82,12 @@ export interface UserProfile {
   settledGames: string[];
 }
 
-/** 商城商品配置表（顺序即展示顺序）。棋境已全部免费，商城只卖棋子材质。 */
+/** 商城商品配置表（顺序即展示顺序，展示时再按 category 分区）。棋境已全部免费，商城只卖棋子材质与实物。 */
 export const SHOP_ITEMS: ShopItem[] = [
   {
     id: 'mat-frosted-black',
     kind: 'material',
+    category: 'pieces',
     name: '墨玉',
     price: 30,
     target: 'frosted-black',
@@ -83,6 +97,7 @@ export const SHOP_ITEMS: ShopItem[] = [
   {
     id: 'mat-frosted-cyan',
     kind: 'material',
+    category: 'pieces',
     name: '鸿璐',
     price: 30,
     target: 'frosted-cyan',
@@ -94,11 +109,23 @@ export const SHOP_ITEMS: ShopItem[] = [
   {
     id: 'mat-translucent-white',
     kind: 'material',
+    category: 'pieces',
     name: '凝脂',
     price: 30,
     target: 'translucent-white',
     side: 'white',
     description: '半透明白子，清透玻璃棋子，光线在其间流转。',
+  },
+  {
+    id: 'goods-xiaomi-su7',
+    kind: 'physical',
+    category: 'physical',
+    name: '小米SU7',
+    price: 10,
+    target: '',
+    side: null,
+    description: '纯电轿跑，10 积分兑换。兑换券仅在本站有效，不折现、不包邮。',
+    image: '/shop/xiaomi-su7.jpg',
   },
 ];
 

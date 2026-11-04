@@ -19,11 +19,13 @@ router = APIRouter(prefix="/api/users", tags=["profile"])
 # 商城购买挂在自己的前缀下（POST /api/shop/purchase）。
 shop_router = APIRouter(prefix="/api/shop", tags=["shop"])
 
-# 商城目录（与前端 SHOP_ITEMS 保持同一套 id / 价格；服务端是扣费的唯一权威）。
+# 商城目录（与前端 SHOP_ITEMS 保持同一套 id / 价格 / 分类；服务端是扣费的唯一权威）。
+# kind 决定买完能干什么：material 可装备到棋子，physical 只是解锁记录（实物兑换）。
 SHOP_CATALOG: dict[str, dict[str, object]] = {
-    "mat-frosted-black": {"name": "墨玉", "price": 30, "target": "frosted-black"},
-    "mat-frosted-cyan": {"name": "鸿璐", "price": 30, "target": "frosted-cyan"},
-    "mat-translucent-white": {"name": "凝脂", "price": 30, "target": "translucent-white"},
+    "mat-frosted-black": {"name": "墨玉", "price": 30, "kind": "material", "category": "pieces", "target": "frosted-black"},
+    "mat-frosted-cyan": {"name": "鸿璐", "price": 30, "kind": "material", "category": "pieces", "target": "frosted-cyan"},
+    "mat-translucent-white": {"name": "凝脂", "price": 30, "kind": "material", "category": "pieces", "target": "translucent-white"},
+    "goods-xiaomi-su7": {"name": "小米SU7", "price": 10, "kind": "physical", "category": "physical", "target": ""},
 }
 
 
@@ -179,8 +181,13 @@ def equip(request: Request, body: EquipBody) -> dict:
         raise HTTPException(401, "请先登录或创建游客会话")
     unlocked: list[str] = json.loads(user.unlocked or "[]")
     # 解锁表存的是**商品 id**（mat-*），请求里是**材质 id**（frosted-black 等），
-    # 需经目录换算后再比对。
-    target_to_item = {str(item["target"]): item_id for item_id, item in SHOP_CATALOG.items()}
+    # 需经目录换算后再比对。只取材质类：实物商品没有可装备目标，混进来会把
+    # 空字符串当成合法材质 id 放行。
+    target_to_item = {
+        str(item["target"]): item_id
+        for item_id, item in SHOP_CATALOG.items()
+        if item.get("kind") == "material"
+    }
     for side, material in (("material_black", body.material_black), ("material_white", body.material_white)):
         default = _DEFAULT_SKINS[side]
         if material == default:

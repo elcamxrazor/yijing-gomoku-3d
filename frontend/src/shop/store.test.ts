@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  type UserProfile, loadProfile, applyWallet, equipMaterial,
+  type ShopCategory, type UserProfile, SHOP_CATEGORIES, SHOP_ITEMS,
+  loadProfile, applyWallet, equipMaterial,
   isSceneUnlocked, setStorageForTesting, POINTS_PER_GAME, INITIAL_POINTS,
 } from './store';
 
@@ -15,6 +16,38 @@ function makeMemoryStorage(): { getItem(key: string): string | null; setItem(key
     },
   };
 }
+
+describe('商城分类', () => {
+  const group = (category: ShopCategory) => SHOP_ITEMS.filter((item) => item.category === category);
+
+  it('棋子 / 棋盘 / 实物三类齐全且顺序固定', () => {
+    expect(SHOP_CATEGORIES.map((category) => category.name)).toEqual(['棋子', '棋盘', '实物']);
+  });
+
+  it('三种棋子都归入棋子分类', () => {
+    expect(group('pieces').map((item) => item.id)).toEqual([
+      'mat-frosted-black', 'mat-frosted-cyan', 'mat-translucent-white',
+    ]);
+    expect(group('pieces').every((item) => item.kind === 'material')).toBe(true);
+  });
+
+  it('棋盘分类当前为空（展示空态）', () => {
+    expect(group('boards')).toEqual([]);
+  });
+
+  it('实物分类含小米SU7，10 积分可兑换并配了商品图', () => {
+    const su7 = group('physical').find((item) => item.name === '小米SU7');
+    expect(su7).toBeDefined();
+    expect(su7!.price).toBe(10);
+    expect(su7!.kind).toBe('physical');
+    expect(su7!.image).toBe('/shop/xiaomi-su7.jpg');
+  });
+
+  it('每件商品都落在已声明的分类里', () => {
+    const declared = new Set<string>(SHOP_CATEGORIES.map((category) => category.id));
+    for (const item of SHOP_ITEMS) expect(declared.has(item.category)).toBe(true);
+  });
+});
 
 describe('用户档案持久化', () => {
   beforeEach(() => {

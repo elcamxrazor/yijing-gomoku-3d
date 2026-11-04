@@ -70,6 +70,17 @@ Rapfi 以 **GNU GPL v3** 授权：本项目保留其版权与许可声明。构�
 | [Gaming Console](https://polyhaven.com/a/gaming_console) | 赛博桌面游戏主机 | `public/models/gaming_console/` |
 | [Projector Screen](https://polyhaven.com/a/projector_screen) | 影棚背景板 / 反光板（运行时换成纯色材质） | `public/models/projector_screen/` |
 
+## 商城商品图
+
+商城的「实物」分类里，小米 SU7 商品图取自 Wikimedia Commons：
+
+| 文件 | 来源 | 授权 | 用途 |
+| --- | --- | --- | --- |
+| [Xiaomi SU7 004.jpg](https://commons.wikimedia.org/wiki/File:Xiaomi_SU7_004.jpg)（作者 JustAnotherCarDesigner，缩至 640px） | Wikimedia Commons | **CC0 1.0**（公有领域贡献） | 商城商品缩略图 `public/shop/xiaomi-su7.jpg` |
+
+CC0 不要求署名，这里仍记录来源以便追溯；「小米」「SU7」为小米公司的商标，
+此处仅作站内玩笑性质的兑换券配图，不代表任何官方合作或背书。
+
 其余视觉资产（障子纸、霓虹招牌、花瓣、挂轴、图标、纯色兜底材质）
 全部由 Canvas 2D 在运行时程序化生成，或直接使用基础几何体，不依赖任何外部文件。
 

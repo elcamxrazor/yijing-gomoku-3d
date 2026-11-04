@@ -565,7 +565,9 @@ html[data-scene="studio"] .narration-line { background: rgba(16, 17, 20, .76); }
 #shop-content .shop-head h2 { margin: 0; text-align: left; font-size: 22px; }
 #shop-content .shop-points { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-border); font-size: 12px; font-weight: 600; color: #586454; white-space: nowrap; }
 #shop-content .shop-points strong { color: #c79a3f; font-size: 14px; }
-#shop-content .shop-section-title { font-size: 10.5px; letter-spacing: .12em; color: #9aa093; margin: 20px 0 9px; text-transform: uppercase; }
+/* 分类切换：与复盘菜单同款分段控件，三等分、一次只显示一类商品。 */
+.shop-tabs { grid-template-columns: repeat(3, 1fr); margin: 14px 0 12px; }
+.shop-tabs button { padding: 8px 2px; font-size: 11px; }
 .shop-list { display: flex; flex-direction: column; gap: 9px; }
 .shop-item { display: flex; gap: 13px; align-items: center; padding: 13px 14px; border: 1px solid var(--glass-border); border-radius: 14px; background: var(--glass); transition: box-shadow .2s; }
 .shop-item.is-equipped { box-shadow: 0 0 0 2px rgba(199, 154, 63, .5); }
@@ -575,6 +577,10 @@ html[data-scene="studio"] .narration-line { background: rgba(16, 17, 20, .76); }
 .shop-item .shop-name .shop-tag { font-size: 9px; font-weight: 600; color: #fff; background: #c79a3f; padding: 1px 7px; border-radius: 999px; }
 .shop-item .shop-desc { font-size: 10.5px; color: #8a9087; line-height: 1.55; margin-top: 3px; }
 .shop-item .shop-action { flex: 0 0 auto; }
+/* 实物商品用商品图替代色块（比色块略宽，接近 4:3 缩略图）。 */
+.shop-item .shop-photo { width: 84px; height: 60px; object-fit: cover; border-radius: 10px; background: #e9ece4; }
+/* 分类下暂无商品时的空态 */
+.shop-empty { margin: 0; padding: 16px; border: 1px dashed var(--glass-border); border-radius: 14px; text-align: center; font-size: 11px; color: #9aa093; }
 .shop-btn { padding: 8px 14px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--glass-border); background: var(--glass-strong); color: #45524a; cursor: pointer; transition: .18s; white-space: nowrap; }
 .shop-btn:hover:not(:disabled) { background: #eef1e9; }
 .shop-btn.primary { background: #3f6f4a; color: #fff; border-color: transparent; }
