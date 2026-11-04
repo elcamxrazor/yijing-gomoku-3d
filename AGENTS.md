@@ -72,6 +72,8 @@ npm test
 ## 坑
 
 - `core.hooksPath` 是**本机** git 配置，新 clone / 新 worktree 要重新 `git config core.hooksPath tools/hooks`
+- 走 7897 代理时 schannel 常报 `failed to receive handshake`；改用 `git -c http.sslBackend=openssl -c http.proxy=http://127.0.0.1:7897 push origin main` 即可（2026-11-05 实测）
+- `tools/push_via_api.py` 的 API 兜底**不经过 pre-push 钩子**：用之前手工确认 `CLAIM.json` 无他人租约、远端 `main` 仍是 HEAD 的父节点，用之后重跑三件套测试
 - `CLAIM.json` 是租约锁文件，必须提交；别手工删，用 `tools/claim.sh release`
 - `package-lock.json` 被单独改动会被 pre-commit 拒绝（多半是 `npm install` 重写的），用 `git restore frontend/package-lock.json`
 - `backend/_restart.log` 被追踪且每次重启都变脏：部署门禁已排除它，但仍禁止提交
