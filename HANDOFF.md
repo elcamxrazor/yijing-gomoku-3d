@@ -26,7 +26,7 @@
 ## 2. 目录结构（关键文件）
 
 ```
-项目根 = C:\Users\45126\WorkBuddy\2026-10-31-07-00-13
+项目根 = C:\Users\45126\WorkBuddy\3d-yijing-gomoku
 
 backend/
   app/

@@ -22,7 +22,7 @@
 
 | 项目 | 值 |
 | --- | --- |
-| 主仓库 / 部署目录 | `C:\Users\45126\WorkBuddy\2026-10-31-07-00-13` |
+| 主仓库 / 部署目录 | `C:\Users\45126\WorkBuddy\3d-yijing-gomoku` |
 | 服务端口 | `25562`（uvicorn `0.0.0.0`，后端同时托管 `frontend/dist`） |
 | Git | 已加进系统 PATH，直接 `git xxx` 即可（2.55.0）。若报「不是内部或外部命令」，退回全路径 `C:\Users\45126\.workbuddy\binaries\PortableGit\versions\1.3.0\cmd\git.exe` |
 | Node | `C:\Users\45126\.workbuddy\binaries\node\versions\22.22.2-6\` |
@@ -35,7 +35,7 @@
 ## 上线（仅服务器执行，单一发布入口）
 
 ```bat
-cd /d C:\Users\45126\WorkBuddy\2026-10-31-07-00-13
+cd /d C:\Users\45126\WorkBuddy\3d-yijing-gomoku
 tools\deploy.cmd
 ```
 

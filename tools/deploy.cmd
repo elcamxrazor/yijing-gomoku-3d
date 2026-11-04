@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 >nul
-cd /d C:\Users\45126\WorkBuddy\2026-10-31-07-00-13 || exit /b 1
+cd /d C:\Users\45126\WorkBuddy\3d-yijing-gomoku || exit /b 1
 
 echo ===1/5 前置门禁===
 rem git 不一定在 PATH（计划任务/提权 shell 常见），先解析出可用的 git 再谈门禁。
@@ -46,13 +46,13 @@ if exist CLAIM.json (
 
 echo ===2/5 构建===
 set PATH=C:\Users\45126\.workbuddy\binaries\node\versions\22.22.2-6;%PATH%
-cd /d C:\Users\45126\WorkBuddy\2026-10-31-07-00-13\frontend
+cd /d C:\Users\45126\WorkBuddy\3d-yijing-gomoku\frontend
 call npm run build
 if errorlevel 1 (
   echo BLOCKED: 构建失败，未改动线上进程。
   exit /b 1
 )
-cd /d C:\Users\45126\WorkBuddy\2026-10-31-07-00-13
+cd /d C:\Users\45126\WorkBuddy\3d-yijing-gomoku
 
 echo ===3/5 写入 BUILD_INFO===
 > "frontend\dist\BUILD_INFO.json" echo {"commit":"!HEAD_SHA!","builtAt":"%DATE% %TIME%","publisher":"server","source":"tools/deploy.cmd"}
