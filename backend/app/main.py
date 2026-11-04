@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -37,6 +38,87 @@ class SPAStaticFiles(StaticFiles):
             ):
                 return await super().get_response("index.html", scope)
             raise
+
+
+# 复用 uvicorn 已配置好的 handler：应用自己不做 logging 配置，
+# 用这个名字能保证 INFO/WARNING 都进 _restart.log，而不是被 lastResort 吞掉。
+logger = logging.getLogger("uvicorn.error")
+
+FRONTEND_MISSING = (
+    "前端产物未生成（frontend/dist/index.html 不存在），当前只提供 API。\n"
+    "请执行 npm run build 或 tools/deploy.cmd；产物就位后无需重启，本服务会自动接管。\n"
+)
+
+
+class SPAFrontend:
+    """前端产物的挂载点，按需解析目录。
+
+    产物目录在**每次请求时**才解析，而不是启动时判定一次：先起后端、后跑
+    `npm run build` 是常见顺序，旧实现遇到这种情况会永久只服务 API（页面全 404），
+    日志里却看不出任何异常。现在启动缺失会告警，产物后到也能自动接管。
+    """
+
+    def __init__(self, candidates: list[Path]) -> None:
+        self._candidates = candidates
+        self._static: SPAStaticFiles | None = None
+        self._dist: Path | None = None
+        self._warned = False
+
+    @property
+    def mounted(self) -> bool:
+        return self._static is not None
+
+    @property
+    def dist(self) -> Path | None:
+        return self._dist
+
+    def resolve(self) -> Path | None:
+        for candidate in self._candidates:
+            if (candidate / "index.html").is_file():
+                return candidate.resolve()
+        return None
+
+    def ensure(self) -> bool:
+        """首次解析成功后挂上 StaticFiles；后续调用只是读缓存。"""
+        if self._static is not None:
+            return True
+        dist = self.resolve()
+        if dist is None:
+            return False
+        self._static = SPAStaticFiles(directory=dist, html=True)
+        self._dist = dist
+        logger.info("前端静态目录已挂载：%s", dist)
+        return True
+
+    async def __call__(self, scope, receive, send) -> None:
+        if self.ensure():
+            await self._static(scope, receive, send)
+            return
+
+        # 产物还没到位：API 保持 404 语义，页面给 503 + 明确原因，别让人对着空白 404 猜。
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 1011})
+            return
+        if scope["type"] != "http":
+            return
+
+        is_api = scope.get("path", "").startswith("/api/")
+        status = 404 if is_api else 503
+        body = b"Not Found" if is_api else FRONTEND_MISSING.encode("utf-8")
+        if not is_api and not self._warned:
+            self._warned = True
+            logger.warning(FRONTEND_MISSING.strip())
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [
+                    (b"content-type", b"text/plain; charset=utf-8"),
+                    (b"cache-control", b"no-store"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -104,6 +186,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["*"],
         )
 
+    candidates: list[Path] = []
+    if settings.frontend_dist:
+        candidates.append(Path(settings.frontend_dist))
+    candidates.extend([
+        BASE_DIR.parent / "frontend" / "dist",  # local repository layout
+        BASE_DIR / "frontend" / "dist",          # container image layout
+    ])
+    frontend = SPAFrontend(candidates)
+    if not frontend.ensure():
+        logger.warning(
+            "未找到前端产物，页面请求将返回 503（仅 API 可用）。候选目录：%s",
+            "、".join(str(path) for path in candidates),
+        )
+
     @app.get("/api/health")
     def health() -> dict:
         return {
@@ -112,6 +208,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # tracks 为 0 通常就是「电台没出现」的全部原因：目录里没有音频文件。
             "radio": {"enabled": radio.count > 0, "tracks": radio.count},
             "engine": {"provider": "rapfi-wasm", "location": "client"},
+            # mounted 为 false = 只有 API 能用、页面全 503，一眼就能看出来。
+            "frontend": {"mounted": frontend.mounted},
         }
 
     app.include_router(auth_router)
@@ -121,19 +219,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(shop_router)
     app.add_api_websocket_route("/ws", websocket_endpoint)
 
-    candidates = []
-    if settings.frontend_dist:
-        candidates.append(Path(settings.frontend_dist))
-    candidates.extend([
-        BASE_DIR.parent / "frontend" / "dist",  # local repository layout
-        BASE_DIR / "frontend" / "dist",          # container image layout
-    ])
-    frontend_dist = next(
-        (candidate.resolve() for candidate in candidates if (candidate / "index.html").is_file()),
-        None,
-    )
-    if frontend_dist is not None:
-        app.mount("/", SPAStaticFiles(directory=frontend_dist, html=True), name="frontend")
+    # 挂在最后：/api 与 /ws 先匹配，其余路径（含前端路由）落到这里。
+    app.mount("/", frontend, name="frontend")
     return app
 
 
