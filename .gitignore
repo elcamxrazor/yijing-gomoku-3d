@@ -28,6 +28,8 @@ radio/*
 # 测试与截图产物（Playwright 实拍、可视化对比图），不属于源码
 frontend/uitest/out/
 frontend/uitest/shots/
+# 从 frontend/uitest 目录内跑脚本时，相对路径 uitest/out/... 会再嵌一层
+frontend/uitest/uitest/
 frontend/shots/
 
 # Rapfi 上游引擎源码：体积大（~125M）且内部带多个嵌套 .git 子模块，

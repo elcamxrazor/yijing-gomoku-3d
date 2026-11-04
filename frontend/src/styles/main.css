@@ -85,11 +85,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 
 .hud-tagline { margin: 0 0 0 18px; color: #7f877e; font-size: 11px; letter-spacing: .14em; }
 
-/* 对局双方：贴在顶栏正中，谁在落子谁高亮 */
+/* 对局双方：贴在顶栏正中，谁在落子谁高亮。
+   中间不再写「对 弈」——两颗棋子已经说明关系，多两个字只会把胶囊撑宽。 */
 .match {
   position: absolute; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px;
-  padding: 5px 14px; border-radius: 999px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 5px 12px; border-radius: 999px;
   background: var(--glass); border: 1px solid var(--glass-border);
   backdrop-filter: blur(16px) saturate(1.1); box-shadow: 0 4px 16px rgba(45, 52, 43, .07);
 }
@@ -97,11 +98,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .match-player.active { background: rgba(105, 130, 110, .13); }
 .match-name { max-width: 108px; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #5c665e; }
 .match-player.active .match-name { color: #33473a; }
-.match-vs { color: #a8ada3; font-family: SimSun, serif; font-size: 9px; letter-spacing: .12em; }
+.match-vs { width: 1px; height: 13px; flex: 0 0 auto; background: rgba(80, 92, 80, .2); }
 .stone-avatar { width: 16px; height: 16px; flex: 0 0 auto; display: inline-block; border-radius: 50%; }
 .stone-avatar.black { background: radial-gradient(circle at 35% 27%, #50554f 0, #272d28 34%, #111512 85%); box-shadow: inset -1px -2px 3px #0007; }
 .stone-avatar.white { background: radial-gradient(circle at 35% 27%, #fff 0, #f3f1e9 47%, #d6d5ce 100%); border: 1px solid #deded6; }
-.you-tag { padding: 1px 5px; border-radius: 4px; background: rgba(105, 130, 110, .18); color: #526a56; font-size: 8px; letter-spacing: .06em; }
+.you-tag { padding: 1px 5px; border-radius: 4px; background: rgba(105, 130, 110, .15); color: #647a68; font-size: 8px; letter-spacing: .06em; }
 
 .hud-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
 .icon-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #5f6a61; transition: background .2s, color .2s; }
@@ -160,78 +161,74 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .radio-percent { width: 22px; flex: 0 0 auto; text-align: right; color: #98a094; font-size: 9px; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------------------------ */
-/* 叙事行：一句话状态 + 回合徽标                                     */
+/* 叙事行：一枚胶囊装下「一句话状态 + 回合 + 读秒」                    */
 /* ------------------------------------------------------------------ */
 .narration {
-  position: absolute; z-index: 11; top: 66px; left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  position: absolute; z-index: 11; top: 64px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
   pointer-events: none; width: max-content; max-width: calc(100vw - 32px); text-align: center;
 }
 .eyebrow { margin: 0; font-size: 8px; font-weight: 700; letter-spacing: .26em; color: #949c92; text-transform: uppercase; }
-.narration-line { display: flex; align-items: center; gap: 14px; pointer-events: auto; }
-/* 原先是「深绿字 + 白色发光阴影」：深色桌面上白阴影把字糊成一团，
-   茶室的白色障子窗前又和背景融掉。改成亮字 + 自适应底托，明暗背景都读得清；
-   底色随棋境切换（见下方 html[data-scene] 规则）。 */
-.narration h1 {
-  margin: 0; font-family: "Songti SC", SimSun, serif; font-weight: 500;
-  font-size: clamp(14px, 1.35vw, 18px); letter-spacing: .12em; line-height: 1.35;
-  color: #f7f4ec;
-  padding: 5px 17px 6px; border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, .14);
-  background: rgba(20, 25, 22, .66);
-  backdrop-filter: blur(8px);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
-}
 .narration .eyebrow {
-  color: rgba(243, 240, 231, .78);
+  color: rgba(243, 240, 231, .82);
   text-shadow: 0 1px 6px rgba(0, 0, 0, .6);
 }
+/* 玻璃底从标题挪到整行：原先标题是深色胶囊、回合徽标是白色胶囊，
+   两枚浮片并排贴在棋盘上方，是顶部最乱的地方。现在共用一层底，
+   中间只留一道竖线，同一状态也就只占一处。底色随棋境深浅自适应。 */
+.narration-line {
+  display: flex; align-items: center; max-width: 100%; pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, .14); border-radius: 999px;
+  background: rgba(20, 25, 22, .66); backdrop-filter: blur(10px);
+  box-shadow: 0 6px 22px rgba(18, 24, 20, .22);
+}
+.narration h1 {
+  margin: 0; min-width: 0; flex: 0 1 auto;
+  font-family: "Songti SC", SimSun, serif; font-weight: 500;
+  font-size: clamp(14px, 1.35vw, 18px); letter-spacing: .12em; line-height: 1.35;
+  color: #f7f4ec; padding: 5px 16px 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
+}
 /* 浅景白墙 / 障子窗 / 砂地：底再压深一档，边缘才不会和背景连成一片。 */
-html[data-scene="tea"] .narration h1,
-html[data-scene="courtyard"] .narration h1,
-html[data-scene="living"] .narration h1 { background: rgba(18, 23, 20, .76); }
-html[data-scene="cyber"] .narration h1 {
+html[data-scene="tea"] .narration-line,
+html[data-scene="courtyard"] .narration-line,
+html[data-scene="living"] .narration-line { background: rgba(18, 23, 20, .76); }
+html[data-scene="cyber"] .narration-line {
   background: rgba(9, 15, 32, .76);
   border-color: rgba(60, 230, 221, .3);
 }
-html[data-scene="studio"] .narration h1 { background: rgba(16, 17, 20, .76); }
+html[data-scene="studio"] .narration-line { background: rgba(16, 17, 20, .76); }
+
+/* 回合徽标不再是独立白胶囊，而是同一枚胶囊的右半段：
+   贴齐上下边，用一道竖线分栏，文字改浅色以压在深色底上。 */
 .turn-badge {
-  display: flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px;
-  border: 1px solid var(--glass-border); background: var(--glass);
-  backdrop-filter: blur(14px); color: #474f47; font-size: 10px; white-space: nowrap;
-  box-shadow: 0 3px 14px rgba(28, 20, 12, .22);
+  display: flex; align-items: center; gap: 6px; flex: 0 0 auto; align-self: stretch;
+  padding: 0 14px 0 12px; border-left: 1px solid rgba(255, 255, 255, .18);
+  color: rgba(247, 244, 236, .86); font-size: 10px; white-space: nowrap;
 }
 .mini-stone { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.mini-stone.black { background: #27312b; box-shadow: inset -1px -1px 2px #0006, inset 1px 1px 2px #ffffff1f; }
+.mini-stone.black { background: #27312b; box-shadow: inset -1px -1px 2px #0006, 0 0 0 1px rgba(255, 255, 255, .45); }
 .mini-stone.white { background: #faf9f5; border: 1px solid #d4d4ce; }
 
 /* 读秒倒计时：长在回合徽标里，和「轮到谁」同一行。
    等宽数字是必须的——比例字体会让 00:28 → 00:27 时整枚徽标左右抖一下。 */
 .turn-clock {
-  margin-left: 2px; padding-left: 8px; border-left: 1px solid rgba(80, 92, 80, .18);
-  font-variant-numeric: tabular-nums; font-weight: 600; color: #4a5b4c;
+  margin-left: 2px; padding-left: 8px; border-left: 1px solid rgba(255, 255, 255, .18);
+  font-variant-numeric: tabular-nums; font-weight: 600; color: #f0ede3;
   letter-spacing: .02em; transition: color .2s ease;
 }
 /* 最后 10 秒换警示色 + 轻微脉动。只动 opacity/scale，触发的是一次合成，
    不会把整条叙事行拉进重排。 */
-.turn-clock.low { color: #b0552f; animation: clock-low 1s ease-in-out infinite; }
+.turn-clock.low { color: #ffb08a; animation: clock-low 1s ease-in-out infinite; }
 /* 对手断线停表：压暗并去掉脉动，让「暂时不走」和「还在走」一眼可分。 */
-.turn-clock.paused { color: #93998f; animation: none; }
+.turn-clock.paused { color: rgba(247, 244, 236, .5); animation: none; }
 @keyframes clock-low {
   0%, 100% { opacity: 1; }
   50% { opacity: .45; }
 }
-
-.ai-thinking {
-  position: absolute; z-index: 11; top: 72px; right: clamp(14px, 2vw, 26px);
-  display: flex; align-items: center; gap: 4px; padding: 7px 13px; border-radius: 999px;
-  background: var(--glass); border: 1px solid var(--glass-border); backdrop-filter: blur(14px);
-  font-size: 10px; color: #5f6a61; box-shadow: 0 4px 16px rgba(45, 52, 43, .08);
-}
-.ai-thinking span { width: 4px; height: 4px; background: #698272; border-radius: 50%; animation: thinking 1.2s infinite; }
-.ai-thinking span:nth-child(2) { animation-delay: .16s; }
-.ai-thinking span:nth-child(3) { animation-delay: .32s; margin-right: 4px; }
-@keyframes thinking { 0%, 70%, 100% { opacity: .3; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-3px); } }
+/* 原右上角那条「对方正在思考」浮动胶囊已移除：与叙事胶囊、回合徽标
+   三处同义。AI 思考态统一由叙事胶囊表达，顶部不再多一枚浮片。 */
 
 .board-tip {
   position: absolute; z-index: 11; left: clamp(14px, 2vw, 26px); bottom: 92px;
@@ -654,9 +651,13 @@ html[data-scene="studio"] .narration h1 { background: rgba(16, 17, 20, .76); }
 }
 
 @media (max-width: 900px) {
-  .match { position: static; transform: none; margin-inline: auto; }
+  /* 这一档顶栏放不下「居中的双方胶囊」：会和右侧操作按钮撞上。
+     原先改成 flex 静态排列，胶囊就被推到品牌旁边、和下方叙事胶囊错开，
+     反而更乱。直接收起：轮到谁在叙事胶囊与底部状态行里都写着，
+     点名字看名片是桌面端才需要的操作。 */
+  .match { display: none; }
   .brand-text small { display: none; }
-  .narration { top: 62px; }
+  .narration { top: 60px; }
   .welcome { grid-template-columns: minmax(0, 1fr); align-content: center; gap: 26px; padding: 74px 26px 104px; }
   .welcome-copy h2 { font-size: clamp(32px, 7vw, 44px); margin: 10px 0 14px; }
   .welcome-copy h2 br { display: none; }
@@ -674,15 +675,13 @@ html[data-scene="studio"] .narration h1 { background: rgba(16, 17, 20, .76); }
   .account-button span { max-width: 74px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .account-button .icon { display: none; }
   .connection-status { display: none; }
-  /* 手机上不显示对战条：名字一长它就会把顶栏撑出去，而「轮到谁」在叙事行与状态行里都有。 */
-  .match { display: none; }
-  .narration { top: 56px; gap: 2px; }
-  .narration h1 { font-size: 13px; letter-spacing: .08em; }
-  .turn-badge { padding: 4px 9px; font-size: 9px; }
+  .narration { top: 56px; gap: 3px; max-width: calc(100vw - 20px); }
+  .narration-line { max-width: 100%; }
+  .narration h1 { font-size: 13px; letter-spacing: .06em; padding: 5px 12px 6px; }
+  .turn-badge { padding: 0 10px 0 9px; font-size: 9px; gap: 5px; }
   .status-row { font-size: 9px; gap: 7px; }
   .status-metric, .game-state-badge { display: none; }
   .board-tip { display: none; }
-  .ai-thinking { top: 60px; font-size: 9px; padding: 5px 10px; }
   .presence-alert { top: 96px; font-size: 10px; padding: 6px 12px; }
   .watch-chip { display: none; }
   .radio-card { top: 50px; }
@@ -700,7 +699,6 @@ html[data-scene="studio"] .narration h1 { background: rgba(16, 17, 20, .76); }
 }
 
 @media (max-width: 460px) {
-  .match-name { max-width: 56px; }
   .welcome { padding: 66px 18px 96px; }
   .mode-card { min-height: 70px; gap: 12px; padding: 12px 13px; border-radius: 12px; }
   .mode-icon { width: 36px; height: 36px; border-radius: 9px; }

@@ -10,9 +10,12 @@ import { PHRASES } from '../shop/phrases';
  * 不再用外层卡片把棋盘框起来——棋盘能占多少屏幕就占多少。
  *
  * 三种信息按重要性分层：
- * - 顶栏（58px）：品牌 / 对局双方 / 连接与账户
- * - 叙事行：当前状态的一句话（禅意文案）+ 回合徽标
+ * - 顶栏（58px）：品牌 / 对局双方 / 账户与操作
+ * - 叙事行：一枚胶囊，左边一句话状态、右边回合与读秒（同一状态只说一次）
  * - 底部：状态数据一行 + 操作坞（居中的胶囊）
+ *
+ * 顶部刻意只留两行。恒定不变的信息（十五路无禁手、已连接、AI 对弈）不再
+ * 单独占一行：模式与棋境已在顶栏上下文里，规则首页已写，连接正常无需播报。
  */
 export function renderShell(): string {
   return `
@@ -51,7 +54,8 @@ export function renderShell(): string {
           <span class="match-name" id="black-player-name">黑方</span>
           <span class="you-tag" id="black-you-tag" hidden>你</span>
         </div>
-        <span class="match-vs">对 弈</span>
+        <!-- 两颗棋子已经把「谁对谁」说清楚了，中间只留一道细分隔线，不再写「对 弈」。 -->
+        <span class="match-vs" aria-hidden="true"></span>
         <div class="match-player" id="white-player-row">
           <span class="stone-avatar white"></span>
           <span class="match-name" id="white-player-name">白方</span>
@@ -84,8 +88,10 @@ export function renderShell(): string {
       </div>
     </div>
 
+    <!-- 叙事行是一枚胶囊：h1 与回合徽标共用同一层玻璃底，不再各浮一片。
+         副标题默认隐藏，只有限时 / 残局 / 观战这类「会变的信息」才出现。 -->
     <div class="narration">
-      <p class="eyebrow" id="mode-eyebrow">十五路 · 无禁手</p>
+      <p class="eyebrow" id="mode-eyebrow" hidden></p>
       <div class="narration-line">
         <h1 id="stage-title">落子有声，心静无界。</h1>
         <div class="turn-badge" id="turn-badge" hidden><span class="mini-stone black"></span><span id="turn-label">黑方回合</span><span class="turn-clock" id="turn-clock" hidden aria-live="off"></span></div>
@@ -98,7 +104,9 @@ export function renderShell(): string {
       <strong class="presence-alert-timer" id="presence-alert-timer">02:00</strong>
     </div>
 
-    <div class="ai-thinking" id="ai-thinking" hidden><span></span><span></span><span></span>对方正在思考</div>
+    <!-- 原先右上角还有一条「对方正在思考」浮动条。它与叙事胶囊里的
+         「静候一手」、回合徽标里的「对方正在思考」说的是同一件事，
+         三处同义最碍眼，已去掉；AI 思考态由叙事胶囊统一表达。 -->
     <div class="board-tip" id="board-tip">右键拖动旋转 · 滚轮缩放</div>
 
     <section class="welcome" id="welcome-screen">

@@ -879,6 +879,45 @@ AI 对局沿用传统模式（人类执自选颜色、黑先），本地对战�
   照片 y 厚度 < 0.35、书的长边方向与右端不越界；8 件陈设零穿模、零跳过告警、
   零 pageerror、落子各 1 手 → **VERDICT: PASS**。
 
+### 3.25 批次十六：顶部 HUD 精简为两行（2026-11-05）
+
+**用户反馈**：「顶部 ui 太杂乱了，能不能优化布局排版并去掉无用元素」。实拍基线（1280×820，
+人机局玩家回合）显示顶部 116px 内叠了三行、三枚带底浮片：顶栏白色对战条、
+灰色小字「AI 对弈 · 十五路无禁手」、深色标题胶囊 + 白色回合徽标。同一事实被重复表达：
+「AI 对弈」出现 2 次，「轮到谁」出现在叙事标题 / 回合徽标 / 底部状态行 / 当前颜色 / 名字高亮
+共 5 处；AI 思考时「思考」更是在右上角浮动条、标题、徽标、底部状态行说了 4 遍。
+
+- **合并浮片**：玻璃底从 `#stage-title` 移到 `.narration-line`，标题与 `#turn-badge`
+  共用一枚胶囊，中间只留一道竖线；标题去掉背景/边框/圆角，徽标去掉白底与阴影、
+  改浅色字并 `align-self: stretch` 让分隔线贯穿。`html[data-scene]` 的棋境底色适配
+  同步改挂 `.narration-line`，`.mini-stone.black` 加浅描边、读秒改浅色以压在深底上。
+- **删恒定信息**：`#mode-eyebrow` 默认 `hidden`，只在**限时 / 残局 / 观战**时显示精简后缀
+  （`每步 30 秒 · 残局自第 12 手`）；`renderReplayHud` 里显式置回 hidden。
+  模式与棋境本来就在顶栏 `#context-text`，规则首页已写，无需每局重复一遍。
+- **删重复浮条**：右上角 `#ai-thinking`「对方正在思考」整块移除（DOM + `main.ts` 两处
+  `required` + CSS/keyframes）。AI 思考态由叙事胶囊统一表达：标题改「静观其变，稍候一手。」，
+  徽标仍是「对方正在思考」——**后者是 `continue_check.cjs` 的硬断言，不能改**。
+- **删无用装饰**：`.match-vs` 的「对 弈」两字换成 1px 竖分隔线；`#connection-status`
+  只在「连接中 / 等待重连」时显示（正常态不播报，人机/本地局由本地引擎算、socket 灯无关，
+  断线另有 `presence-alert`）。顺手修 `stageTitle()`：原先人机局不看 `yourColor` 一律写
+  「轮到你了」，AI 执先手时会说错。
+- **对齐与断点**：桌面 `.match` 与 `.narration-line` 都在正中（实测中心 640 / 640.5）。
+  **900px 以下直接收起 `.match`**：这一档放不下居中的双方胶囊（会撞右侧 7 个操作按钮），
+  原来 `position: static; margin-inline:auto` 把它推到品牌旁边、和叙事胶囊错开更乱。
+  680px 以下原本就已经隐藏，等于把断点上移并删掉 460px 的死规则。
+- **刻意保留**：`#turn-badge` / `#turn-label` / `#turn-clock`（读秒与 E2E 锚点都在这里）、
+  `.match` 的双方名字（联机点名字看名片）、`#stage-title` / `#mode-eyebrow`（复盘覆写用到）、
+  `#current-color`（`rapfi_e2e.cjs` 读取）。所有 `[hidden]` / `is-playing` /
+  `intro-running` / `is-replaying` 开关原样复用，开场推镜淡出不受影响。
+- **验证**：`tsc -b` / `vite build` / 114 项前端单测全绿；`uitest/out/_hud_after.cjs`
+  在 1280 / 900 / 680 / 390 四个视口连跑，断言浮片数（桌面 2、窄屏 1）、胶囊不溢出、
+  不与顶栏重叠、冗余元素已消失、落子与 AI 思考态文案不重复、零 pageerror →
+  **VERDICT: PASS**；`_hud_eyebrow.cjs` 验证副标题条件显示不与胶囊重叠 → PASS；
+  `continue_check` / `mobile_phrase`（气泡与 HUD 无几何重叠）/ `ingame_profile_check`
+  三个依赖顶部 HUD 的 E2E 全绿。改前源码备份在 `.workbuddy/backups/20261105-0040/`。
+- **顺带**：`.gitignore` 忽略 `frontend/uitest/uitest/`（从该目录内跑脚本时，
+  相对路径 `uitest/out/...` 会多嵌一层测试截图）。
+
 ## 4. 素材来源与授权
 
 **全部来自 [Poly Haven](https://polyhaven.com)，CC0 授权（可商用、可修改、无需署名）**。

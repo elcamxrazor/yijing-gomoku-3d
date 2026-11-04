@@ -2976,12 +2976,13 @@ class YijingApp {
     required('welcome-screen').hidden = true;
     required('waiting-card').hidden = true;
     required('result-card').hidden = true;
-    required('ai-thinking').hidden = true;
     required('replay-bar').hidden = false;
     required('board-tip').hidden = false;
     required('board-tip').textContent = '复盘 · 拖动进度条回看任意一手';
 
-    required('mode-eyebrow').textContent = `复盘 · ${summarizeMode(record)}`;
+    const replayEyebrow = required('mode-eyebrow');
+    replayEyebrow.hidden = true;
+    replayEyebrow.textContent = `复盘 · ${summarizeMode(record)}`;
     required('context-text').textContent = `复盘 · ${sceneName(coerceSceneId(record.scene))}`;
     required('stage-title').textContent =
       `${record.players.black?.name ?? '黑方'} 对 ${record.players.white?.name ?? '白方'}`;
@@ -3152,7 +3153,6 @@ class YijingApp {
     required('result-card').hidden = snapshot?.status !== 'finished' || this.resultCardDismissed;
     // 本地对弈只存在于这台设备上，服务端没有它的棋谱，所以不给复盘入口。
     required('result-replay').hidden = snapshot?.mode === 'local';
-    required('ai-thinking').hidden = !snapshot?.aiThinking;
     required('board-tip').hidden = snapshot?.status === 'waiting';
     required('board-tip').textContent = snapshot?.mode === 'online' && snapshot.status === 'playing'
       ? '左键落子 · 点桌上的铜铃催促 · 右键旋转'
@@ -3160,12 +3160,20 @@ class YijingApp {
     this.scene.setInteractive(this.canMove());
 
     const modeNames = { local: '本地对弈', ai: 'AI 对弈', online: '好友联机' } as const;
-    // 残局局要标出处：盘上几颗子不是自己下的，不写一句「从第 N 手接手」，
-    // 玩家会以为自己刚才漏看了半盘棋。
-    const practiceSuffix = (snapshot?.startPly ?? 0) > 0 ? ` · 残局自第 ${snapshot?.startPly} 手` : '';
-    required('mode-eyebrow').textContent = snapshot
-      ? `${spectating ? '观战' : modeNames[snapshot.mode]} · 十五路无禁手${timeBudgetSuffix(snapshot.timeControl)}${practiceSuffix}`
-      : '十五路 · 无禁手';
+    // 叙事行副标题只留「这一局真正特别的地方」。模式 / 十五路无禁手是恒定的，
+    // 模式与棋境已经写在顶栏上下文里、规则首页也写过，再挂一行纯属噪音。
+    // 限时、残局起手、观战身份才会改变玩家接下来要做的事，才值得单说一句。
+    // 残局尤其要标出处：盘上几颗子不是自己下的，不写玩家会以为漏看了半盘棋。
+    const eyebrowNotes: string[] = [];
+    if (snapshot) {
+      const budget = timeBudgetSuffix(snapshot.timeControl).replace(/^ · /, '');
+      if (budget) eyebrowNotes.push(budget);
+      if ((snapshot.startPly ?? 0) > 0) eyebrowNotes.push(`残局自第 ${snapshot.startPly} 手`);
+      if (spectating) eyebrowNotes.push('观战');
+    }
+    const modeEyebrow = required('mode-eyebrow');
+    modeEyebrow.hidden = eyebrowNotes.length === 0;
+    modeEyebrow.textContent = eyebrowNotes.join(' · ');
     required('stage-title').textContent = snapshot ? this.stageTitle(snapshot) : '落子有声，心静无界。';
     required('context-text').textContent = snapshot
       // 棋境名也进上下文行：换景是后台自动发生的（随机 / 跟随房主），
@@ -3400,7 +3408,9 @@ class YijingApp {
 
   private renderConnection(): void {
     const element = required('connection-status');
-    element.hidden = !this.user;
+    // 连接正常时不播报：人机 / 本地局用本地引擎，socket 灯本就无关；
+    // 联机局断线另有 presence-alert 横幅。只有「连接中 / 等待重连」才值得占顶栏。
+    element.hidden = !this.user || this.connectionStatus === 'connected';
     element.className = `connection-status ${this.connectionStatus}`;
     const label = this.connectionStatus === 'connected' ? '已连接' : this.connectionStatus === 'connecting' ? '连接中' : '等待重连';
     const text = element.querySelector('span');
@@ -3410,12 +3420,15 @@ class YijingApp {
   private stageTitle(snapshot: AnyGameSnapshot): string {
     if (snapshot.status === 'waiting') return '房间已备好，静候棋友。';
     if (snapshot.status === 'finished') return '一局落幕，余韵悠长。';
-    if (snapshot.aiThinking) return '静心等待，AI 正在思考。';
+    // 回合徽标此刻写着「对方正在思考」，主标题不再把同一句话说第二遍。
+    if (snapshot.aiThinking) return '静观其变，稍候一手。';
     if (snapshot.spectating) return '静观棋局，落子有声。';
     if (snapshot.mode === 'ai') {
       const watching = snapshot.aiBlack && snapshot.aiWhite;
       if (watching) return '观赏模式 · AI 黑白轮番对弈。';
-      return '轮到你了，专注下一步。';
+      // 原先人机局不看执子颜色、一律写「轮到你了」：AI 执先手时会说错。
+      if (snapshot.yourColor === snapshot.currentPlayer) return '轮到你了，专注下一步。';
+      return '静候对手落子。';
     }
     if (snapshot.mode !== 'local' && snapshot.yourColor === snapshot.currentPlayer) return '轮到你了，专注下一步。';
     return snapshot.currentPlayer === 1 ? '黑方落子，棋局伊始。' : '白方落子，从容应对。';
