@@ -72,7 +72,8 @@ npm test
 ## 坑
 
 - `core.hooksPath` 是**本机** git 配置，新 clone / 新 worktree 要重新 `git config core.hooksPath tools/hooks`
-- 走 7897 代理时 schannel 常报 `failed to receive handshake`；改用 `git -c http.sslBackend=openssl -c http.proxy=http://127.0.0.1:7897 push origin main` 即可（2026-11-05 实测）
+- 走 7897 代理时 schannel 常报 `failed to receive handshake`；改用 `git -c http.sslBackend=openssl -c http.proxy=http://127.0.0.1:7897 push origin main` 即可（2026-11-05 实测）；偶发 `unexpected eof while reading` 属链路抖动，重试一两次即可
+- 服务器 `python` **不在 PATH**：用 `C:\Users\45126\.workbuddy\binaries\python\versions\3.13.12\python.exe`；跑 `tools/push_via_api.py` 前先 `set PYTHONIOENCODING=utf-8`，否则中文门禁提示在 SSH 里是乱码
 - `tools/push_via_api.py` 走 HTTPS API、**不经过 git 钩子**，但已内置等效门禁（租约 / 派生物 / 远端必须等于 HEAD^）；`python tools/push_via_api.py --check` 可只跑门禁不联网。**优先普通 `git push`**，API 兜底只在两条网络通道都断时用，用后重跑三件套
 - `CLAIM.json` 是租约锁文件，必须提交；别手工删，用 `tools/claim.sh release`
 - `package-lock.json` 被单独改动会被 pre-commit 拒绝（多半是 `npm install` 重写的），用 `git restore frontend/package-lock.json`
