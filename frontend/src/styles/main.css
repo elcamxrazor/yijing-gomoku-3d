@@ -820,6 +820,42 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
   color: #7a5c2e; font-variant-numeric: tabular-nums;
 }
 
+/* ------------------------------------------------------------------ */
+/* 复盘续弈                                                            */
+/*                                                                     */
+/* 「续弈」是播放条上唯一会把人**带走**的按钮（其余都只是翻棋谱），所以   */
+/* 它做实心填充而不是和「AI评估」一样的描边：点下去就换局了，得有点分量。 */
+/* ------------------------------------------------------------------ */
+.replay-step.replay-continue {
+  width: auto; padding: 0 12px; border-radius: 17px;
+  display: inline-flex; align-items: center;
+  font-size: 10px; letter-spacing: .06em; font-weight: 600;
+  color: #f7f8f2; background: #3e5547;
+}
+.replay-step.replay-continue:hover:not(:disabled) { background: #304438; color: #f7f8f2; }
+/* 不可用时不用默认的 opacity：半透明的深绿压在深色棋盘上，看不出是「不能点」 */
+.replay-step.replay-continue:disabled {
+  background: rgba(94, 116, 96, .16); color: #79877c; opacity: 1;
+}
+
+.continue-modal { width: min(420px, calc(100vw - 30px)); }
+/* 两块并排的按钮，而不是单选卡片再配一个确定键：这里没有「先选再确认」的
+   余地，点哪边就是哪边开打，少一次点击也少一次反悔的机会。 */
+.continue-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 22px 0 0; }
+.continue-side {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 18px 10px; border: 1px solid #dfe2d9; border-radius: 12px;
+  background: #f6f6f0; color: #2b352e; cursor: pointer;
+  transition: border-color .18s, background .18s, transform .18s;
+}
+.continue-side:hover { border-color: #879d83; background: #edf2e8; }
+.continue-side:active { transform: translateY(1px); }
+.continue-side:focus-visible { outline: 2px solid #698272; outline-offset: 3px; }
+.continue-side .stone-avatar { width: 30px; height: 30px; }
+.continue-side strong { font-size: 12px; }
+.continue-side small { color: #959b91; font-size: 9px; }
+.continue-hint { margin: 14px 0 0; text-align: center; color: #a0a49c; font-size: 9px; }
+
 /* 本地引擎思考面板：与观战徽标同族的小胶囊，AI 思考时逐层刷新。 */
 .engine-panel {
   display: inline-flex; align-items: center; gap: 6px;

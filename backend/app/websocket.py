@@ -50,6 +50,16 @@ def _time_control_of(payload: dict) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def _preset_of(payload: dict) -> list | None:
+    """取出残局前缀（复盘「一键续弈」用）。
+
+    只做「是不是数组」这一层判断；坐标、重复、终局这些真正要紧的校验
+    交给 `GameService.parse_preset`——那是落库前的最后一道闸。
+    """
+    value = payload.get("preset")
+    return value if isinstance(value, list) else None
+
+
 def _tagged(message: dict, response: dict) -> dict:
     if "requestId" in message:
         response["requestId"] = message["requestId"]
@@ -131,7 +141,10 @@ async def dispatch(user, message: dict, app) -> dict:
     if message_type == "ai.create":
         color = _required(payload, "color", str)
         # scene / rule 都是可选的：不带就让服务端随机 / 默认无禁手。
-        snapshot = await games.create_ai(user, color, _scene_of(payload), _rule_of(payload))
+        # preset（残局前缀）同理：不带就是空盘开局，老客户端完全不受影响。
+        snapshot = await games.create_ai(
+            user, color, _scene_of(payload), _rule_of(payload), _preset_of(payload)
+        )
     elif message_type == "room.create":
         snapshot = await games.create_room(
             user, _scene_of(payload), _rule_of(payload), _time_control_of(payload)

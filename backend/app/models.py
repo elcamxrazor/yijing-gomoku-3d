@@ -69,6 +69,12 @@ class Game(Base):
     win_reason: Mapped[str | None] = mapped_column(String(8), nullable=True)
     generation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ai_thinking: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # 残局起点：本局前 `start_ply` 手是从棋谱载入的既定局面，不是玩家下的。
+    # 重开时清回这里而不是清空棋盘（「再练一次同一个残局」才有意义），
+    # 悔棋也不能越过它，否则一路退回去就退成了空盘。0 表示正常开局。
+    start_ply: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     undo_from: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # 重开请求：联机（PVP）重开需对方同意，发起方 id 暂存于此，对方回应后清空。
     restart_from: Mapped[str | None] = mapped_column(String(32), nullable=True)

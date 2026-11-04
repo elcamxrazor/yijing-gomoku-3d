@@ -57,6 +57,8 @@ class Database:
             self._ensure_column("games", "per_move_ms", "INTEGER")
             self._ensure_column("games", "turn_started_at", "FLOAT")
             self._ensure_column("games", "turn_side", "VARCHAR(8)")
+            # 残局起点（复盘载入时的既定手数）。老库按 0 补齐＝从空盘开始，行为不变。
+            self._ensure_column("games", "start_ply", "INTEGER NOT NULL DEFAULT 0")
 
     def _ensure_column(self, table: str, column: str, ddl: str) -> None:
         """给早版本的库补列。

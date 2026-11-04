@@ -103,6 +103,50 @@ class GameService:
         return {"mode": TIME_MODE_PER_MOVE, "perMoveMs": int(per_move)}
 
     @staticmethod
+    def parse_preset(raw, rule: str | None = None) -> list[tuple[int, int]]:
+        """把客户端送来的残局前缀（``preset``）校验成 ``[(row, col), ...]``。
+
+        **颜色不由客户端指定**，一律按手数奇偶推导（黑先）：这是棋盘上唯一
+        的事实，让客户端自报颜色只会多出一个能与棋谱对不上的输入。
+
+        校验放得很严（坐标、重复、容量、终局），因为它决定的是「这一局从哪儿
+        开始」——放过一个坏前缀，换来的是一盘摆得出来却下不下去的棋。
+        """
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            raise GameError("VALIDATION_ERROR", "preset 必须是着法数组")
+        capacity = BOARD_SIZE * BOARD_SIZE
+        if len(raw) >= capacity:
+            # 满盘即终局，没有「接着下」的余地。
+            raise GameError("VALIDATION_ERROR", "残局手数过多，棋盘容不下再落子")
+        seen: set[tuple[int, int]] = set()
+        points: list[tuple[int, int]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                raise GameError("VALIDATION_ERROR", "preset 的每一项必须是 {row, col}")
+            row, col = item.get("row"), item.get("col")
+            # bool 是 int 的子类，`True` 会被当成 1，得单独挡掉。
+            if isinstance(row, bool) or isinstance(col, bool) or not isinstance(row, int) or not isinstance(col, int):
+                raise GameError("VALIDATION_ERROR", "preset 的 row / col 必须是整数")
+            if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE):
+                raise GameError("VALIDATION_ERROR", "preset 的坐标超出棋盘")
+            if (row, col) in seen:
+                raise GameError("VALIDATION_ERROR", "preset 里有重复落点")
+            seen.add((row, col))
+            points.append((row, col))
+
+        board, rules = board_from_moves([], rule or "freestyle")
+        for index, (row, col) in enumerate(points):
+            color = BLACK if index % 2 == 0 else WHITE
+            board[row][col] = color
+            # 逐手查五连：棋谱里只要有一处连五，这一局早在那里就结束了，
+            # 后面多出来的着法不属于这盘棋。
+            if rules.has_five(board, row, col, color):
+                raise GameError("VALIDATION_ERROR", "残局里已经有五连，无法从中途接手")
+        return points
+
+    @staticmethod
     def _turn_side_of(game: Game) -> str:
         """当前该走的一方。手数为偶数轮到黑方，奇数轮到白方（黑先）。"""
         return "black" if len(game.moves) % 2 == 0 else "white"
@@ -293,6 +337,15 @@ class GameService:
         return [RuleMove(m.row, m.col, m.color) for m in sorted(game.moves, key=lambda m: m.move_index)]
 
     @staticmethod
+    def _start_ply(game: Game) -> int:
+        """残局起点手数（正常开局为 0）。
+
+        `getattr` 兜老库/老对象：迁移补列之前实例化的行没有这个属性，
+        读成 0 就是改动前的行为。
+        """
+        return int(getattr(game, "start_ply", 0) or 0)
+
+    @staticmethod
     def _color(game: Game, user_id: int) -> int | None:
         player = str(user_id)
         if game.black_player_id == player:
@@ -307,6 +360,10 @@ class GameService:
 
         只在状态从 playing 翻转为 finished 的那一刻调用一次（各终局路径内），
         历史归档复制（restart 存档）不再结算，天然幂等。AI 座位不发。
+
+        **口径分工**：人机局照发积分（那是商城积分的唯一来源），但不进战绩
+        —— `profile_routes._compute_stats` 里把 `mode == "ai"` 的局整个排除了。
+        赢一盘 AI 拿不到胜率，输一盘也不会掉，只有联机局才计入胜负。
         """
         if game.status != "finished":
             return
@@ -373,7 +430,8 @@ class GameService:
             if game.mode == "ai":
                 # 观赏/编辑模式（双方同为 AI 或都非 AI）每次只撤一手，门槛放宽。
                 steps = 2 if bool(game.ai_black) != bool(game.ai_white) else 1
-                can_undo = not game.ai_thinking and len(history) >= steps
+                # 残局起点之前的手是「载入的棋谱」，不是本局下的，撤不得。
+                can_undo = not game.ai_thinking and len(history) - steps >= self._start_ply(game)
             elif last:
                 can_undo = last.color == your_color
         undo_request = None
@@ -448,6 +506,9 @@ class GameService:
             "winner": game.winner,
             "winReason": game.win_reason,
             "moveCount": len(history),
+            # 残局起点手数：前端据此把「载入的棋谱」和「本局下的棋」分开——
+            # 计数从起点算、悔棋停在起点、终局文案也能说清这局是从哪儿接手的。
+            "startPly": self._start_ply(game),
             "canUndo": can_undo,
             "aiThinking": bool(game.ai_thinking),
             "undoRequest": undo_request,
@@ -515,9 +576,20 @@ class GameService:
             ).unique())
             return [self._snapshot(session, game, user_id) for game in games]
 
-    async def create_ai(self, user: User, color: str, scene: str | None = None, rule: str | None = None) -> dict:
+    async def create_ai(
+        self,
+        user: User,
+        color: str,
+        scene: str | None = None,
+        rule: str | None = None,
+        preset: list[dict] | None = None,
+    ) -> dict:
         if color not in {"black", "white"}:
             raise GameError("VALIDATION_ERROR", "color 必须为 black 或 white")
+        variant = normalize_variant(rule)
+        # 残局前缀（复盘「一键续弈」用）：先在这里校验干净再落库，别建出
+        # 一盘摆得出来却下不下去的棋。
+        openings = self.parse_preset(preset, variant)
         game_id = str(uuid.uuid4())
         human = str(user.id)
         # 人类选的是「座位」（执黑还是执白），但谁先手仍由开局协商决定。
@@ -528,19 +600,32 @@ class GameService:
             mode="ai",
             status="playing",
             scene=normalize_scene(scene),
-            rule=normalize_variant(rule),
+            rule=variant,
             black_player_id=black,
             white_player_id=white,
             ai_black=black == AI_ID,
             ai_white=white == AI_ID,
             generation=0,
+            # 残局起点：重开回到这里，悔棋也退不过这一线。
+            start_ply=len(openings),
         )
         with self.db.session() as session:
             session.add(game)
+            for index, (row, col) in enumerate(openings):
+                game.moves.append(
+                    GameMove(
+                        move_index=index,
+                        row=row,
+                        col=col,
+                        color=BLACK if index % 2 == 0 else WHITE,
+                    )
+                )
+            # 轮到谁由**手数奇偶**决定，不看「谁执黑」：从残局的中盘接手时，
+            # 先手早就走过了。轮到 AI 就置位等待标记，实际着法由客户端引擎
+            # 算完通过 `game.ai_move` 提交（与空盘开局同一条路径）。
+            ai_to_move = self._ai_flag(game, BLACK if len(openings) % 2 == 0 else WHITE)
         await self._lobby_changed()
-        # AI 执黑（人类选了白）时，开局即轮到 AI 落子：服务端只置位等待标记，
-        # 实际着法由客户端的前端引擎计算后通过 `game.ai_move` 提交。
-        if black == AI_ID:
+        if ai_to_move:
             async with self._lock(game_id):
                 with self.db.session() as session:
                     game = self._load(session, game_id)
@@ -926,8 +1011,9 @@ class GameService:
                         raise GameError("UNDO_NOT_ALLOWED", "需等待落子完成后才能悔棋")
                     # 常规人机（AI 执一边）撤「人+AI」两手；观赏/编辑模式每次撤一手。
                     steps = 2 if bool(game.ai_black) != bool(game.ai_white) else 1
-                    if len(history) < steps:
-                        raise GameError("UNDO_NOT_ALLOWED", "没有可撤回的着法")
+                    # 退到残局起点为止：再往回就退到别人下过的棋谱里了。
+                    if len(history) - steps < self._start_ply(game):
+                        raise GameError("UNDO_NOT_ALLOWED", "已经退到残局起点，不能再悔")
                     for move in list(game.moves)[-steps:]:
                         session.delete(move)
                     game.generation += 1
@@ -956,7 +1042,7 @@ class GameService:
                     raise GameError("UNDO_NOT_ALLOWED", "终局不可悔棋")
                 if accept:
                     moves = sorted(game.moves, key=lambda item: item.move_index)
-                    if not moves:
+                    if len(moves) <= self._start_ply(game):
                         raise GameError("NO_UNDO_REQUEST", "没有可撤回落子")
                     last = moves[-1]
                     session.delete(last)
@@ -995,6 +1081,9 @@ class GameService:
             win_reason=game.win_reason,
             generation=0,
             ai_thinking=False,
+            # 残局起点跟着棋谱一起留档：复盘时才说得清「前 N 手是载入的」，
+            # 而不是把别人下过的棋算成这一盘的战绩。
+            start_ply=GameService._start_ply(game),
             undo_from=None,
             # 重开归档的旧局不参与胜率统计：玩家点「重开」即表示放弃这一局的胜负归属。
             excluded_from_stats=True,
@@ -1035,7 +1124,10 @@ class GameService:
             GameService._archive(session, game)
             # 归档之后这一刻就是新一盘的起点，时长重新计。
             game.created_at = utcnow()
-        game.moves.clear()
+        # 清回**残局起点**而不是空盘：从棋谱载入的练习局，重开的语义是
+        # 「再来一次同一个残局」，清成空盘等于把练习的题目也擦了。
+        start_ply = self._start_ply(game)
+        game.moves = [move for move in game.moves if move.move_index < start_ply]
         game.winner = 0
         game.win_reason = None
         game.undo_from = None
@@ -1081,12 +1173,14 @@ class GameService:
             if self.hub:
                 await self.hub.send_restart_requested(game_id, user.id)
             return
-        # 新一盘黑先：若黑方由 AI 执子则置位等待标志，着法由客户端引擎提交。
+        # 新一盘的第一手轮到谁：残局重开时由起点手数的奇偶决定，从空盘开始才
+        # 是黑先。若该方由 AI 执子则置位等待标志，着法由客户端引擎提交。
         if rearm_ai:
             async with self._lock(game_id):
                 with self.db.session() as session:
                     game = self._load(session, game_id)
-                    game.ai_thinking = self._ai_flag(game, BLACK)
+                    first = BLACK if self._start_ply(game) % 2 == 0 else WHITE
+                    game.ai_thinking = self._ai_flag(game, first)
                     game.generation += 1
         await self._arm_clock_from_db(game_id)
         await self.broadcast(game_id)

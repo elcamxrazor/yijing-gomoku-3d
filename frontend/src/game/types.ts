@@ -92,6 +92,11 @@ export interface GameSnapshot {
   winner: Cell;
   winReason: WinReason;
   moveCount: number;
+  /**
+   * 残局起点手数：前 `startPly` 手是从棋谱载入的，不是本局下的。
+   * 重开回到这里、悔棋退不到这里之前，计数与文案也该从这一线往后算。
+   */
+  startPly?: number;
   canUndo: boolean;
   aiThinking: boolean;
   undoRequest?: { fromName: string } | null;

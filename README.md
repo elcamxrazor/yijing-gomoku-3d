@@ -65,7 +65,8 @@
   `phraseId`，文案由服务端词表下发，从源头杜绝注入。
 - **个人名片**：在大厅或对局中点玩家头像 / 昵称即可查看。看自己与看别人都显示战绩 **与积分**，
   布局完全一致（总场次 / 胜率 / 积分 / 胜 / 负 / 和棋六格网格）；积分是公开分数，与段位展示一致，
-  仅不暴露钱包的私人部分（已解锁商品 / 装备皮肤）。
+  仅不暴露钱包的私人部分（已解锁商品 / 装备皮肤）。**战绩只统计联机对局**——人机局的
+  对手强度由玩家自己挑，算进胜率没有可比性。
 
 ### AI
 
@@ -105,6 +106,9 @@
 - 结算卡上可直接「复盘本局」；复盘复用同一套棋盘渲染，落子动画、最后一手标记、
   五连高亮都与实战一致。
 - 复盘页的「AI评估」在浏览器本地计算，结果按手缓存，翻回来即时重现。
+- **一键续弈**：拖到任意一手点「续弈」，把当前局面当残局起点开一局人机继续下。
+  执子方当场选（计算机执黑 / 执白），棋境与规则跟着棋谱走。前 N 手记作
+  `startPly`——重开回到这里而不是空盘，悔棋也退不过这一线。
 
 ## 技术栈
 
@@ -538,7 +542,7 @@ frontend/src/scene/
 | --- | --- |
 | `ping` / `lobby.watch` / `game.focus` | 心跳 / 订阅大厅 / 报告正在看的棋局 |
 | `challenge.create` / `challenge.respond` / `challenge.cancel` | 发起（可带 `scene` / `timeControl`）/ 接受婉拒 / 撤回约战 |
-| `ai.create` | 开人机局 `{color, scene?, rule?}`（人机局不读秒） |
+| `ai.create` | 开人机局 `{color, scene?, rule?, preset?}`（人机局不读秒）；`preset` 是残局前缀 `[{row, col}, …]`，颜色由服务端按手数推导 |
 | `room.create` / `room.join` / `room.resume` / `room.leave` | 房间操作；`room.create` 可带 `timeControl` |
 | `game.move` / `game.undo` / `game.undo_response` | 落子 / 悔棋 / 悔棋回应 |
 | `game.restart` / `game.restart_response` / `game.resign` | 重开 / 重开回应 / 认输 |
@@ -597,6 +601,16 @@ frontend/src/scene/
 > 刻意**不**每秒广播快照：个性化快照的成本随在线人数线性增长。客户端拿
 > `deadlineAt` 自己算，服务端只在状态变化时下发。
 
+**残局续弈相关字段**
+
+快照新增 `startPly`（本局从第几手开始，正常开局为 `0`）。`ai.create` 的 `preset`
+会校验坐标范围 / 重复落点 / 棋盘容量 / 是否已经五连，任何一条不满足都回
+`VALIDATION_ERROR`；颜色由服务端按手数奇偶推导，客户端送什么颜色都不作数。
+
+> 接力这条语义贯穿四处：`startPly` 之前的手悔棋撤不掉；重开清回 `startPly` 而
+> 不是空盘；结算卡只报本局下的手数；**人机局一律不进战绩统计**（`mode == "ai"`
+> 在 `/api/users/{id}/stats` 里被整体排除，积分仍按 `POINTS_PER_GAME` 照发）。
+
 ## 测试与构建
 
 ```bash
@@ -612,7 +626,7 @@ npm test
 npm run build
 ```
 
-当前基线：后端 **124 项**、前端 **102 项**单测全部通过。
+当前基线：后端 **141 项**、前端 **114 项**单测通过。
 `frontend/uitest/` 下另有 Playwright 可视化回归脚本（鸿璐配色、商城、名片、提示环等）。
 
 ## Docker

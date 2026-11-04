@@ -88,7 +88,7 @@ export function renderShell(): string {
       <p class="eyebrow" id="mode-eyebrow">十五路 · 无禁手</p>
       <div class="narration-line">
         <h1 id="stage-title">落子有声，心静无界。</h1>
-        <div class="turn-badge" id="turn-badge" hidden><span class="mini-stone black"></span><span id="turn-label">黑方回合</span><span class="turn-clock" id="turn-clock" hidden aria-live="off">00:30</span></div>
+        <div class="turn-badge" id="turn-badge" hidden><span class="mini-stone black"></span><span id="turn-label">黑方回合</span><span class="turn-clock" id="turn-clock" hidden aria-live="off"></span></div>
       </div>
     </div>
 
@@ -251,6 +251,29 @@ export function renderShell(): string {
       <div class="confirm-actions"><button class="secondary-button" id="challenge-decline">婉拒</button><button class="primary-button" id="challenge-accept">接受约战</button></div>
     </dialog>
 
+    <dialog class="modal continue-modal" id="continue-dialog">
+      <button class="modal-close" data-close="continue-dialog" aria-label="关闭">${icon('close')}</button>
+      <span class="modal-feature-icon">${icon('cpu')}</span>
+      <p class="eyebrow">CONTINUE FROM HERE</p><h2>从这一步续弈</h2>
+      <p class="modal-subtitle" id="continue-subtitle">盘面原样保留，接着由你和引擎轮流落子。</p>
+      <!-- 执子方不进记忆、也不预设默认值：每次都由人当场点一次。
+           同一个人今天想练黑、明天想练白，替他记住反而是负担。 -->
+      <div class="continue-sides" id="continue-sides">
+        <button type="button" class="continue-side" data-ai-color="black">
+          <i class="stone-avatar black"></i>
+          <strong>计算机执黑</strong>
+          <small id="continue-black-note">你执白</small>
+        </button>
+        <button type="button" class="continue-side" data-ai-color="white">
+          <i class="stone-avatar white"></i>
+          <strong>计算机执白</strong>
+          <small id="continue-white-note">你执黑</small>
+        </button>
+      </div>
+      <p class="continue-hint" id="continue-hint">人机对局均不计入战绩，也不影响胜率。</p>
+      <p class="form-error" id="continue-error" role="alert"></p>
+    </dialog>
+
     <dialog class="modal confirm-modal" id="confirm-dialog"><span class="modal-feature-icon small">${icon('flag')}</span><h2 id="confirm-title">确认操作</h2><p class="modal-subtitle" id="confirm-message"></p><div class="confirm-actions"><button class="secondary-button" id="confirm-cancel">再想想</button><button class="primary-button" id="confirm-accept">确认</button></div></dialog>
     <dialog class="modal" id="profile-card">
       <button class="modal-close" data-close="profile-card" aria-label="关闭">${icon('close')}</button>
@@ -341,6 +364,9 @@ export function renderShell(): string {
           ${icon('cpu')}<span>AI评估</span>
         </button>
         <span class="replay-ai-result" id="replay-ai-result" aria-live="polite"></span>
+        <!-- 一键续弈：把「当前这一步」当残局起点，开一局人机继续下。
+             复盘看到一半想「这手我要是这么走会怎样」，不用另开一局重新摆。 -->
+        <button type="button" class="replay-step replay-continue" id="replay-continue" title="从当前这一步开始，与 AI 继续下完">续弈</button>
         <button type="button" class="replay-step replay-keep" id="replay-keep" title="把这局棋谱永久保存，不参与 30 天自动清理">永久储存</button>
       </div>
       <p class="replay-hint">拖动进度条可回看任意一手 · 按 Esc 也能退出</p>

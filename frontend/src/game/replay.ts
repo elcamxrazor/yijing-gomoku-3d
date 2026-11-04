@@ -14,10 +14,14 @@ export interface ReplaySummary {
   id: string;
   mode: GameMode;
   scene: ScenePresetId;
+  /** 规则变体。续弈时必须沿用：连珠局接成无禁手，局面合法性就变了。 */
+  rule?: 'freestyle' | 'renju';
   status: 'waiting' | 'playing' | 'finished';
   winner: Cell;
   winReason: WinReason;
   moveCount: number;
+  /** 这局从第几手开始（> 0 表示本身是从残局接手的练习局）。 */
+  startPly?: number;
   players: {
     black: { id: string; name: string } | null;
     white: { id: string; name: string } | null;

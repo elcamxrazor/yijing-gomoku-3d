@@ -36,12 +36,17 @@ def _compute_stats(session, player: str) -> dict:
 
     只统计**已结束**的棋局；认输 / 掉线判负都按 winner 归属计算，与复盘列表的口径一致。
     重开时归档的旧局（excluded_from_stats）不计入。胜率为 0~1，没有对局时为 null。
+
+    **人机局一律不计入**：AI 的强弱是玩家自己在弹窗里选的，拿它算胜率没有可比性；
+    何况从棋谱载入的残局练习是同一道题可以反复做的，算进去只会污染分母。
+    积分的口径不在这里（见 `GameService._settle`），两者刻意分开。
     """
     total = wins = draws = 0
     games = session.scalars(select(Game).where(
         Game.status == "finished",
         # 重开时归档的旧局不计入胜率：点「重开」即视为放弃该局胜负归属。
         Game.excluded_from_stats == False,
+        Game.mode != "ai",
         (Game.black_player_id == player) | (Game.white_player_id == player),
     ))
     for game in games:

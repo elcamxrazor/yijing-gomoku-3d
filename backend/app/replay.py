@@ -83,12 +83,17 @@ class ReplayService:
             "id": game.id,
             "mode": game.mode,
             "scene": game.scene,
+            # 规则要一起带出来：从棋谱「一键续弈」时必须沿用同一套规则，
+            # 否则一盘连珠局接过去变成无禁手，整个局面的合法性都变了。
+            "rule": getattr(game, "rule", None) or "freestyle",
             "status": game.status,
             "winner": game.winner,
             # 棋谱保留策略：默认 30 天清理；勾选「永久储存」后豁免。
             "keepForever": bool(game.keep_forever),
             "winReason": game.win_reason,
             "moveCount": len(moves),
+            # 这局从第几手开始（> 0 表示它本身就是从残局接手的练习局）。
+            "startPly": int(getattr(game, "start_ply", 0) or 0),
             "players": {
                 "black": self._player(session, game.black_player_id),
                 "white": self._player(session, game.white_player_id),

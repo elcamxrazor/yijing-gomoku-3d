@@ -24,6 +24,7 @@ import {
   resultLabel, summarizeMode,
 } from './game/replay';
 import type { ReplayRecord, ReplaySummary } from './game/replay';
+import { canContinueFrom, continuePly, firstMoverNote, presetFrom } from './game/continue';
 import { phraseText } from './shop/phrases';
 import {
   type UserProfile, SHOP_ITEMS, POINTS_PER_GAME, loadProfile, applyWallet,
@@ -373,6 +374,14 @@ class YijingApp {
     required('replay-toggle').addEventListener('click', () => this.toggleReplay());
     required('replay-ai').addEventListener('click', () => void this.requestReplaySuggestion());
     required('replay-keep').addEventListener('click', () => void this.keepReplayForever());
+    required('replay-continue').addEventListener('click', () => this.openContinueDialog());
+    required('continue-sides').addEventListener('click', (event) => {
+      const button = event.target instanceof Element
+        ? event.target.closest<HTMLButtonElement>('[data-ai-color]')
+        : null;
+      const side = button?.dataset.aiColor;
+      if (side === 'black' || side === 'white') void this.continueWithAi(side);
+    });
     required('opponent-skin-options').addEventListener('click', (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-opponent-skin]');
       if (!button) return;
@@ -390,6 +399,8 @@ class YijingApp {
     // Esc 退出复盘：播放条不是 <dialog>，没有内建的关闭行为，得自己接一下。
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape' || !this.replay) return;
+      // 续弈弹窗开着时这一次 Esc 归弹窗：先关弹窗，别顺手把人踢出复盘。
+      if (required<HTMLDialogElement>('continue-dialog').open) return;
       event.preventDefault();
       this.exitReplay();
     });
@@ -1296,7 +1307,16 @@ class YijingApp {
     }
     // 本地 / 人机：原逻辑，立即重开。
     if (!force && snapshot.moveCount > 0 && snapshot.status !== 'finished') {
-      const accepted = await confirmAction('重新开始这一局？', '当前棋盘与落子历史将被清空，此操作需要重新开始。', '确认重开');
+      // 残局局重开不是「清空棋盘」，而是「再练一次同一道题」——文案跟着说，
+      // 否则玩家会以为重开之后就回到空盘了。
+      const startPly = snapshot.startPly ?? 0;
+      const accepted = await confirmAction(
+        '重新开始这一局？',
+        startPly > 0
+          ? `将回到第 ${startPly} 手的残局起点，本局落的子会被清空。`
+          : '当前棋盘与落子历史将被清空，此操作需要重新开始。',
+        '确认重开',
+      );
       if (!accepted) return;
     }
     try {
@@ -1621,6 +1641,9 @@ class YijingApp {
     const state = this.snapshot ? this.clock : null;
     if (!state) {
       chip.hidden = true;
+      // 藏起来也要把数字擦掉：徽标的 textContent 会被拼进无障碍名称，
+      // 留着上一次的「00:30」等于对着读屏软件报一个并不存在的表。
+      chip.textContent = '';
       return;
     }
     const left = remainingMs(state.deadlineAt, Date.now() - state.offset);
@@ -2578,6 +2601,8 @@ class YijingApp {
     required<HTMLButtonElement>('replay-prev').disabled = index === 0;
     required<HTMLButtonElement>('replay-next').disabled = index >= total;
     required<HTMLButtonElement>('replay-last').disabled = index >= total;
+    // 第 0 手是空盘（等同开新局），末尾若是五连/满盘也已下无可下。
+    required<HTMLButtonElement>('replay-continue').disabled = !canContinueFrom(record, index);
 
     const toggle = required<HTMLButtonElement>('replay-toggle');
     toggle.innerHTML = icon(this.replayTimer === null ? 'play' : 'pause');
@@ -2780,6 +2805,66 @@ class YijingApp {
     }
     this.snapshot = null;
     this.render();
+  }
+
+  // -----------------------------------------------------------------
+  // 复盘「一键续弈」：把当前局面当残局起点，新开一局人机继续下
+  // -----------------------------------------------------------------
+
+  /** 打开续弈弹窗。只摆状态，真正建局在 {@link continueWithAi}。 */
+  private openContinueDialog(): void {
+    const record = this.replay;
+    if (!record) return;
+    const ply = continuePly(record, this.replayIndex);
+    if (!canContinueFrom(record, ply)) {
+      toast('这一步已经是终局，没法从中途接手');
+      return;
+    }
+    required('continue-error').textContent = '';
+    required('continue-subtitle').textContent =
+      ply === record.moves.length
+        ? `从终局盘面接手：${ply} 颗子原样保留，接着由你和引擎轮流落子。`
+        : `从第 ${ply} 手接手：盘面原样保留，接着由你和引擎轮流落子。`;
+    required('continue-black-note').textContent = `你执白 · ${firstMoverNote(ply, 'black')}`;
+    required('continue-white-note').textContent = `你执黑 · ${firstMoverNote(ply, 'white')}`;
+    required<HTMLDialogElement>('continue-dialog').showModal();
+  }
+
+  /**
+   * 从复盘的局面开一局人机。
+   *
+   * 分工：前端只送**坐标序列**和「人执哪一边」。轮到谁、颜色怎么排、这个前缀
+   * 合不合法，全部由服务端判——颜色在前端再算一遍，迟早会和它对不上，而且
+   * 错得静默（棋盘摆出来的和看到的不一样）。
+   */
+  private async continueWithAi(aiSide: 'black' | 'white'): Promise<void> {
+    const record = this.replay;
+    if (!record) return;
+    const ply = continuePly(record, this.replayIndex);
+    if (!canContinueFrom(record, ply)) return;
+
+    const humanSide = aiSide === 'black' ? 'white' : 'black';
+    const dialog = required<HTMLDialogElement>('continue-dialog');
+    if (dialog.open) dialog.close();
+
+    try {
+      await this.withSession(() => {
+        this.leaveReplayForNewGame();
+        this.awaitingRemoteGame = true;
+        this.socket.send('ai.create', {
+          color: humanSide,
+          // 棋境与规则跟着棋谱走：换棋境只是换个景，换成无禁手就换了整局棋的性质。
+          scene: coerceSceneId(record.scene),
+          ...(record.rule ? { rule: record.rule } : {}),
+          preset: presetFrom(record, ply),
+        });
+        toast(`已从第 ${ply} 手接手，你执${humanSide === 'black' ? '黑' : '白'}`);
+      });
+    } catch (error) {
+      required('continue-error').textContent = this.errorMessage(error);
+      // 建局没成时把弹窗放回来，别让人对着一个已经关掉的框干等。
+      dialog.showModal();
+    }
   }
 
   /**
@@ -2990,8 +3075,11 @@ class YijingApp {
     this.scene.setInteractive(this.canMove());
 
     const modeNames = { local: '本地对弈', ai: 'AI 对弈', online: '好友联机' } as const;
+    // 残局局要标出处：盘上几颗子不是自己下的，不写一句「从第 N 手接手」，
+    // 玩家会以为自己刚才漏看了半盘棋。
+    const practiceSuffix = (snapshot?.startPly ?? 0) > 0 ? ` · 残局自第 ${snapshot?.startPly} 手` : '';
     required('mode-eyebrow').textContent = snapshot
-      ? `${spectating ? '观战' : modeNames[snapshot.mode]} · 十五路无禁手${timeBudgetSuffix(snapshot.timeControl)}`
+      ? `${spectating ? '观战' : modeNames[snapshot.mode]} · 十五路无禁手${timeBudgetSuffix(snapshot.timeControl)}${practiceSuffix}`
       : '十五路 · 无禁手';
     required('stage-title').textContent = snapshot ? this.stageTitle(snapshot) : '落子有声，心静无界。';
     required('context-text').textContent = snapshot
@@ -3174,7 +3262,13 @@ class YijingApp {
           ? timeoutText
           : `${winnerName} · 谢谢你的专注与投入`;
     required('result-description').textContent = description;
-    required('result-moves').textContent = String(snapshot.moveCount);
+    // 残局练习局的 `moveCount` 里含着载入的棋谱：报给人看的应该是「这一局你下了
+    // 几手」，把别人下过的一起算进去，会让人以为自己下了几十手。
+    const startPly = snapshot.startPly ?? 0;
+    required('result-moves').textContent = String(Math.max(0, snapshot.moveCount - startPly));
+    if (startPly > 0) {
+      required('result-description').textContent = `${description}（本局从第 ${startPly} 手残局接手）`;
+    }
     required('result-reason').textContent = snapshot.winReason === 'draw'
       ? '棋盘已满'
       : snapshot.winReason === 'offline'
