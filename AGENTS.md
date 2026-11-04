@@ -8,7 +8,7 @@
 | --- | --- |
 | 主仓库 / 部署目录 | `C:\Users\45126\WorkBuddy\2026-10-31-07-00-13` |
 | 服务端口 | `25562`（uvicorn `0.0.0.0`，后端同时托管 `frontend/dist`） |
-| Git | `C:\Users\45126\.workbuddy\binaries\PortableGit\versions\1.3.0\cmd\git.exe`——**cmd 里没有 git 在 PATH，必须写全路径** |
+| Git | 已加进系统 PATH，直接 `git xxx` 即可（2.55.0）。若哪天报「不是内部或外部命令」，退回全路径 `C:\Users\45126\.workbuddy\binaries\PortableGit\versions\1.3.0\cmd\git.exe` |
 | Node | `C:\Users\45126\.workbuddy\binaries\node\versions\22.22.2-6\` |
 | Python | `C:\Users\45126\.workbuddy\binaries\python\versions\3.13.12\python.exe` |
 | 启动脚本 | `C:\Users\45126\start_backend.cmd` |
@@ -60,3 +60,5 @@ npm test
 - 构建期间 `GET /` 可能刷一段 404，是旧进程日志，新进程起来后就正常
 - `npm ci` 在 npm 10.9.7 上会失败，用 `npm install`（会重写 `package-lock.json`，别把无关变动混进提交）
 - `timeout /t` 在非交互 SSH 里不工作，等待用 `ping -n 6 127.0.0.1 >nul`
+- 服务器推 GitHub 会多打一条 `Unable to persist credentials with the 'wincredman' credential store`，**只是警告，推送已成功**，不用管（token 存在 origin URL 里）
+- 系统 PATH 的改动前备份在 `C:\Users\45126\machine_path_backup.txt`，要回滚就把它写回 `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment` 的 `Path`
