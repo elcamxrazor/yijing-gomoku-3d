@@ -993,6 +993,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .challenge-condition strong {
   color: #3e5547; font-weight: 600; font-variant-numeric: tabular-nums;
 }
+/* 「棋境 X · 读秒 Y」中间的分隔点：比两侧的字更轻，一眼能读出这是两件事。 */
+.challenge-condition-dot { color: rgba(62, 85, 71, .4); margin: 0 1px; }
 
 /* AI 执子权勾选：只有人机对局中显示。 */
 .ai-side-picker { display: inline-flex; gap: 10px; align-items: center; }

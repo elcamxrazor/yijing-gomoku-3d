@@ -46,6 +46,9 @@ class Challenge:
     # 约战条件：由发起方在建约时定下，接受即沿用（不接受方另议——
     # 一个「接受/婉拒」的握手容不下一场讨价还价）。
     time_control: dict = field(default_factory=lambda: {"mode": "none", "perMoveMs": None})
+    # 发起方选定的棋境。None 表示「没指定」，由 `create_challenge` 在开局时抽签；
+    # 这里刻意不落成默认场景——那会把「随机」悄悄换成「茶室」。
+    scene: str | None = None
 
     def expired(self, now: float) -> bool:
         return now - self.created_at >= self.ttl
@@ -230,7 +233,13 @@ class LobbyService:
                     "payload": {"challengeId": item.id, "status": "expired"},
                 })
 
-    async def create(self, user, target_id: int, time_control: dict | None = None) -> dict:
+    async def create(
+        self,
+        user,
+        target_id: int,
+        time_control: dict | None = None,
+        scene: str | None = None,
+    ) -> dict:
         if target_id == user.id:
             raise GameError("CHALLENGE_SELF", "不能约战自己")
         # 先校验再落任何状态：一个非法的档位不该在别处留下半条约战。
@@ -274,6 +283,7 @@ class LobbyService:
                 created_at=now,
                 ttl=self.ttl,
                 time_control=normalized_time,
+                scene=scene,
             )
             self._challenges[challenge.id] = challenge
 
@@ -283,8 +293,9 @@ class LobbyService:
                 "challengeId": challenge.id,
                 "from": {"id": str(user.id), "name": user.name, "guest": bool(user.guest)},
                 "expiresInMs": challenge.remaining_ms(_now()),
-                # 接受即沿用：被约战方有权先知道这局要不要读秒。
+                # 接受即沿用：被约战方有权先知道这局要不要读秒、在哪片棋境里下。
                 "timeControl": challenge.time_control,
+                "scene": challenge.scene,
             },
         })
         return self._sent(challenge, target_name, target_guest, now)
@@ -335,7 +346,10 @@ class LobbyService:
                     for item in stale:
                         self._challenges.pop(item.id, None)
                     accepted_game = await self.games.create_challenge(
-                        opponent_id, user.id, time_control=challenge.time_control
+                        opponent_id,
+                        user.id,
+                        scene=challenge.scene,
+                        time_control=challenge.time_control,
                     )
 
         if failure is not None:

@@ -47,6 +47,7 @@
 
 - **在线大厅**：实时名单，标注「可约战 / 房间等待中 / 对弈中」；订阅式推送。
 - **约战**：点击大厅里的棋友发起，对方 30 秒内接受即开局；可撤回，掉线立刻作废。
+  发起时可先选定棋境与读秒，对方在弹窗里就能看到，接受即沿用。
 - **开局决定先后手**：双方各自表态「希望谁先手」，一致则直接定，不一致则进入
   3D 抛硬币（硬币两面刻着两位玩家的名字），朝上一面先手。揭晓前谁也不能落子。
 - **房间**：6 位房间号创建 / 加入，实时同步落子。
@@ -516,7 +517,7 @@ frontend/src/scene/
 | --- | --- |
 | `session.ready` | 连接成功，携带用户与可恢复棋局 |
 | `lobby.players` | 在线名单，只推给已订阅大厅的连接 |
-| `challenge.incoming` | 收到约战 `{challengeId, from, expiresInMs}` |
+| `challenge.incoming` | 收到约战 `{challengeId, from, expiresInMs, timeControl, scene}`；`scene` 为 `null` 表示随机 |
 | `challenge.sent` / `challenge.result` | 约战已发出 / 结果 `{status, gameId?, reason?, byMe?}` |
 | `game.snapshot` | 个性化完整快照，客户端以此为准；含 `timeControl` 与 `clock`（见下） |
 | `game.undo_requested` / `game.restart_requested` | 对方请求悔棋 / 重开 |
@@ -536,7 +537,7 @@ frontend/src/scene/
 | 类型 | 说明 |
 | --- | --- |
 | `ping` / `lobby.watch` / `game.focus` | 心跳 / 订阅大厅 / 报告正在看的棋局 |
-| `challenge.create` / `challenge.respond` / `challenge.cancel` | 发起（可带 `timeControl`）/ 接受婉拒 / 撤回约战 |
+| `challenge.create` / `challenge.respond` / `challenge.cancel` | 发起（可带 `scene` / `timeControl`）/ 接受婉拒 / 撤回约战 |
 | `ai.create` | 开人机局 `{color, scene?, rule?}`（人机局不读秒） |
 | `room.create` / `room.join` / `room.resume` / `room.leave` | 房间操作；`room.create` 可带 `timeControl` |
 | `game.move` / `game.undo` / `game.undo_response` | 落子 / 悔棋 / 悔棋回应 |
@@ -548,6 +549,18 @@ frontend/src/scene/
 | `game.phrase` | 发送预设短语 `{gameId, phraseId}`（只有 ID，文案由服务端补齐） |
 | `game.ai_request` / `game.ai_respond` / `game.ai_result` | 请求分析 / 回应 / 提交建议点 |
 | `spectate.join` / `spectate.leave` | 进入 / 退出观战 |
+
+**棋境相关字段**
+
+`room.create` / `challenge.create` 的载荷都可带棋境：
+
+```json
+{ "scene": "tea" | "courtyard" | "cyber" | "living" | "studio" }
+```
+
+不写 = 服务端开局时抽签；写了不认识的取值退回到默认棋境 `tea`，**不报错**
+——背景不同没有理由把一场约战打成 500。`challenge.incoming` 会把发起方选的
+棋境回传给被约战方（`null` 表示随机），让对方在接受前就知道在哪片场景里下。
 
 **读秒相关字段**
 
@@ -599,7 +612,7 @@ npm test
 npm run build
 ```
 
-当前基线：后端 **121 项**、前端 **102 项**单测全部通过。
+当前基线：后端 **124 项**、前端 **102 项**单测全部通过。
 `frontend/uitest/` 下另有 Playwright 可视化回归脚本（鸿璐配色、商城、名片、提示环等）。
 
 ## Docker

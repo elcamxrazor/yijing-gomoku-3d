@@ -229,6 +229,8 @@ export interface ChallengeInvite {
   expiresInMs: number;
   /** 对方的读秒条件：接受即沿用，所以先让被约战方看见。 */
   timeControl?: TimeControl;
+  /** 对方选的棋境；缺省或为 null 表示随机，由服务端开局时抽签。 */
+  scene?: string | null;
 }
 
 export interface ChallengeSent {

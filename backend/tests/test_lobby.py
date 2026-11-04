@@ -241,3 +241,91 @@ def test_challenge_cancel_and_disconnect_notify_the_other_side(app):
             dropped = receive_until(bob_ws, lambda message: message["type"] == "challenge.result")["payload"]
             assert dropped["status"] == "cancelled"
             assert dropped["reason"] == "对方已离开大厅"
+
+
+# ----------------------------------------------------------------------
+# 约战条件：棋境
+#
+# 棋境是「纯展示」属性，但它是被约战方唯一一次反悔的机会——等棋盘铺开才
+# 发现对面把背景选成了赛博朋克，就只能认了。所以条件必须随邀请一起到。
+# ----------------------------------------------------------------------
+
+
+def test_challenge_carries_the_chosen_scene_to_the_accepted_game(app):
+    with TestClient(app) as alice_client, TestClient(app) as bob_client:
+        register(alice_client, "alice")
+        bob = register(bob_client, "bob")
+        with alice_client.websocket_connect("/ws") as alice_ws, bob_client.websocket_connect("/ws") as bob_ws:
+            alice_ws.receive_json()
+            bob_ws.receive_json()
+
+            alice_ws.send_json({
+                "type": "challenge.create", "requestId": "ch-scene",
+                "payload": {"targetId": bob["id"], "scene": "courtyard"},
+            })
+            receive_request(alice_ws, "ch-scene")
+            invite = receive_until(bob_ws, lambda message: message["type"] == "challenge.incoming")["payload"]
+            assert invite["scene"] == "courtyard"
+
+            bob_ws.send_json({
+                "type": "challenge.respond", "requestId": "resp",
+                "payload": {"challengeId": invite["challengeId"], "accept": True},
+            })
+            snapshot = receive_until(bob_ws, lambda message: message["type"] == "game.snapshot")["payload"]
+            assert snapshot["scene"] == "courtyard"
+
+
+def test_challenge_without_scene_reports_none_and_still_opens_a_real_backdrop(app):
+    """没选棋境时邀请里必须是 null，而不是被填成默认茶室。
+
+    前端拿 null 才显示「随机」。服务端要是提前归一化，界面会一口咬定是茶室，
+    而实际开局抽到的可能是庭院——条件和事实对不上。
+    """
+    from app.scenes import SCENE_IDS
+
+    with TestClient(app) as alice_client, TestClient(app) as bob_client:
+        register(alice_client, "alice")
+        bob = register(bob_client, "bob")
+        with alice_client.websocket_connect("/ws") as alice_ws, bob_client.websocket_connect("/ws") as bob_ws:
+            alice_ws.receive_json()
+            bob_ws.receive_json()
+
+            alice_ws.send_json({"type": "challenge.create", "requestId": "ch-noscene", "payload": {"targetId": bob["id"]}})
+            receive_request(alice_ws, "ch-noscene")
+            invite = receive_until(bob_ws, lambda message: message["type"] == "challenge.incoming")["payload"]
+            assert invite["scene"] is None
+
+            bob_ws.send_json({
+                "type": "challenge.respond", "requestId": "resp",
+                "payload": {"challengeId": invite["challengeId"], "accept": True},
+            })
+            snapshot = receive_until(bob_ws, lambda message: message["type"] == "game.snapshot")["payload"]
+            assert snapshot["scene"] in SCENE_IDS
+
+
+def test_unknown_scene_does_not_break_the_challenge(app):
+    """手搓协议包塞个不存在的棋境：约战照常成立，落库时退回默认场景。
+
+    入口只负责区分「有没有写」，不认识的取值交给 `normalize_scene` 收敛——
+    为背景不同把一场约战打成 500 是没有道理的。
+    """
+    with TestClient(app) as alice_client, TestClient(app) as bob_client:
+        register(alice_client, "alice")
+        bob = register(bob_client, "bob")
+        with alice_client.websocket_connect("/ws") as alice_ws, bob_client.websocket_connect("/ws") as bob_ws:
+            alice_ws.receive_json()
+            bob_ws.receive_json()
+
+            alice_ws.send_json({
+                "type": "challenge.create", "requestId": "ch-weird",
+                "payload": {"targetId": bob["id"], "scene": "moonbase"},
+            })
+            receive_request(alice_ws, "ch-weird")
+            invite = receive_until(bob_ws, lambda message: message["type"] == "challenge.incoming")["payload"]
+
+            bob_ws.send_json({
+                "type": "challenge.respond", "requestId": "resp",
+                "payload": {"challengeId": invite["challengeId"], "accept": True},
+            })
+            snapshot = receive_until(bob_ws, lambda message: message["type"] == "game.snapshot")["payload"]
+            assert snapshot["scene"] == "tea"

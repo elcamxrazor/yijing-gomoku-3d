@@ -476,7 +476,7 @@ class YijingApp {
   private startLocal(): void {
     // 开局弹窗里选的棋境；「随机」或没选就是 undefined，由 LocalGameState 自己抽。
     const scene = readSceneChoice('local-scene') ?? undefined;
-    const rule = readRuleChoice();
+    const rule = readRuleChoice('local');
     this.leaveRemoteSilently();
     localStorage.removeItem('yijing-active-game');
     localStorage.removeItem('yijing-room-code');
@@ -551,8 +551,8 @@ class YijingApp {
     } else {
       this.stopLobbyWatch();
     }
-    // 本地弹窗也要过一遍棋境解锁状态：商城刚解锁的棋境在这里解锢。
-    if (mode === 'local') this.refreshScenePickerLock();
+    // 三个弹窗都有棋境选择，都要过一遍解锁状态：商城刚解锁的棋境在这里解锢。
+    this.refreshScenePickerLock();
     // 先开窗再订阅：名单推送只会在面板已打开时被渲染，早一步到就白丢了。
     required<HTMLDialogElement>('game-dialog').showModal();
     if (mode === 'online') this.startLobbyWatch();
@@ -717,7 +717,15 @@ class YijingApp {
 
   private sendChallenge(player: LobbyPlayer, button: HTMLButtonElement): void {
     required('online-error').textContent = '';
-    if (!this.trySend('challenge.create', { targetId: player.id, ...this.timeControlPayload() })) {
+    // 棋境与读秒都是发起方定、接受即沿用的条件。这里只取棋境而不复用
+    // `scenePayload`：那个还会带上别处弹窗残留的规则单选，而约战协议目前
+    // 不接规则面，多发一个字段只会让服务端读到一份没人选的规则。
+    const scene = readSceneChoice('online-scene');
+    if (!this.trySend('challenge.create', {
+      targetId: player.id,
+      ...(scene ? { scene } : {}),
+      ...this.timeControlPayload(),
+    })) {
       required('online-error').textContent = '与服务器的连接尚未就绪，请稍后重试';
       return;
     }
@@ -759,9 +767,11 @@ class YijingApp {
     this.incoming = invite;
     this.incomingWindow = Math.max(3_000, invite.expiresInMs);
     required('challenge-from-name').textContent = invite.from.name;
-    // 对方开的读秒条件要提前说清：接受即沿用，等下完一局再告诉人「这局限时 30 秒」
-    // 就晚了——那局可能已经因为想太久输掉了。
-    required('challenge-condition').hidden = false;
+    // 对方开的对局条件要提前说清：接受即沿用，等下完一局再告诉人「这局限时
+    // 30 秒、在赛博棋境里下」就晚了——那局可能已经因为想太久输掉了。
+    required('challenge-condition-scene').textContent = invite.scene
+      ? sceneName(coerceSceneId(invite.scene))
+      : '随机';
     required('challenge-condition-value').textContent = timeControlLabel(invite.timeControl);
     required<HTMLDialogElement>('challenge-dialog').showModal();
     this.startIncomingCountdown();
@@ -907,15 +917,19 @@ class YijingApp {
   }
 
   /**
-   * 读一处棋境选择，产出要放进建局报文的字段。
+   * 读一处棋境选择 + 一处规则选择，产出要放进建局报文的字段。
    *
    * 选了「随机」时这里返回**空对象**而不是 `{ scene: null }`：服务端对缺字段
    * 的处理是「自己抽签」，而对 null 的处理是「用默认值」。随机眼看莫名其妙
    * 地变成每局都进茶室，就是从这种一字之差里长出来的。
+   *
+   * @param sceneGroup 棋境单选的 name
+   * @param ruleGroup 规则单选的 name（`<group>-rule`），与棋境组名不一定同源
+   *        ——联机弹窗里棋境叫 `online-scene`，规则却挂在 `room` 组下。
    */
-  private scenePayload(group: string): { scene?: string; rule?: string } {
-    const scene = readSceneChoice(group);
-    const rule = readRuleChoice();
+  private scenePayload(sceneGroup: string, ruleGroup: string): { scene?: string; rule?: string } {
+    const scene = readSceneChoice(sceneGroup);
+    const rule = readRuleChoice(ruleGroup);
     return { ...(scene ? { scene } : {}), ...(rule ? { rule } : {}) };
   }
 
@@ -937,7 +951,7 @@ class YijingApp {
     // 记住本局参数，下次打开 AI 弹窗默认带上（用户要求「默认记忆上局参数」）。
     localStorage.setItem('yijing.ai-params', JSON.stringify({
       color,
-      rule: readRuleChoice(),
+      rule: readRuleChoice('ai'),
       scene: readSceneChoice('ai-scene'),
     }));
     const button = required<HTMLButtonElement>('start-ai');
@@ -945,7 +959,7 @@ class YijingApp {
     try {
       await this.withSession(() => {
         this.awaitingRemoteGame = true;
-        this.socket.send('ai.create', { color, ...this.scenePayload('ai-scene') });
+        this.socket.send('ai.create', { color, ...this.scenePayload('ai-scene', 'ai') });
         required<HTMLDialogElement>('game-dialog').close();
         toast(color === 'black' ? '棋局已创建，你执黑先行' : '棋局已创建，你执白后行');
       });
@@ -962,7 +976,7 @@ class YijingApp {
     try {
       await this.withSession(() => {
         this.awaitingRemoteGame = true;
-        this.socket.send('room.create', { ...this.scenePayload('room-scene'), ...this.timeControlPayload() });
+        this.socket.send('room.create', { ...this.scenePayload('online-scene', 'room'), ...this.timeControlPayload() });
         required<HTMLDialogElement>('game-dialog').close();
       });
     } catch (error) {
@@ -1956,7 +1970,7 @@ class YijingApp {
    * 庭院与赛博是解锁项；茶室始终免费。「随机」不受影响，仍是默认选中。
    */
   private refreshScenePickerLock(): void {
-    this.root.querySelectorAll<HTMLInputElement>('input[name="ai-scene"], input[name="room-scene"], input[name="local-scene"]').forEach((input) => {
+    this.root.querySelectorAll<HTMLInputElement>('input[name="ai-scene"], input[name="online-scene"], input[name="local-scene"]').forEach((input) => {
       if (input.value !== 'courtyard' && input.value !== 'cyber' && input.value !== 'living') return;
       const label = input.closest<HTMLLabelElement>('label.scene-card');
       if (!label) return;

@@ -79,9 +79,16 @@ export function rulePickerHtml(group: string): string {
   );
 }
 
-/** 读出当前选中的规则（各组 name 独立，取任意已选中的）；没有则 null 走默认。 */
-export function readRuleChoice(): 'freestyle' | 'renju' | null {
-  const checked = document.querySelector<HTMLInputElement>('input[name$="-rule"]:checked');
+/**
+ * 读出某一组规则选择。
+ *
+ * 必须按组读。这些选择器全在 `#game-dialog` 里同时存在（只是各自 hidden），
+ * 早先按 `input[name$="-rule"]:checked` 取「页面上第一个选中的」，
+ * 拿到的是 DOM 里排最前的「本地对弈」那一组——于是 AI 局和联机建房里
+ * 用户选的「有禁手」根本没生效，还不会有任何报错。
+ */
+export function readRuleChoice(group: string): 'freestyle' | 'renju' | null {
+  const checked = document.querySelector<HTMLInputElement>(`input[name="${group}-rule"]:checked`);
   if (!checked) return null;
   return checked.value === 'renju' ? 'renju' : 'freestyle';
 }

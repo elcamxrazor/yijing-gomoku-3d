@@ -112,7 +112,12 @@ async def dispatch(user, message: dict, app) -> dict:
             target_id = int(_required(payload, "targetId", str))
         except ValueError as exc:
             raise GameError("VALIDATION_ERROR", "payload.targetId 不是有效的玩家编号") from exc
-        view = await lobby.create(user, target_id, _time_control_of(payload))
+        view = await lobby.create(
+            user,
+            target_id,
+            time_control=_time_control_of(payload),
+            scene=_scene_of(payload),
+        )
         return _tagged(message, {"type": "challenge.sent", "payload": view})
     if message_type == "challenge.respond":
         challenge_id = _required(payload, "challengeId", str)
