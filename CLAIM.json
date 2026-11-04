@@ -1,0 +1,7 @@
+{
+  "owner": "local-guard",
+  "task": "deploy.cmd 发布硬门禁",
+  "base": "5b830c01df1b4282347d27a9efd3f72d3ae28a30",
+  "started": "2026-11-04T18:34:05Z",
+  "expires": 1793819945
+}
