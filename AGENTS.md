@@ -28,7 +28,23 @@
 **网络限制**
 
 - 服务器**访问不了 github.com**，且 `origin` 是不带 token 的裸地址 → **服务器永远无法 push**。不要在这上面浪费时间。
-- 本机推送 GitHub 必须走代理 `http://127.0.0.1:7897`；系统默认的 `http://127.0.0.1:13797` 对 GitHub 报 `CONNECT tunnel failed 502`，直连则超时。
+- 本机推 GitHub 的可用通道**会变**，按顺序试，别死记一个：
+
+  ```bash
+  # ① 先试直连
+  env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy git push origin main
+
+  # ② 直连不通再走代理
+  https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 \
+    env -u HTTPS_PROXY -u HTTP_PROXY git push origin main
+  ```
+
+  系统默认的 `http://127.0.0.1:13797` 对 GitHub 会报 `CONNECT tunnel failed 502`，不要用。
+
+- **分清两种报错的含义**，别混着调：
+  - `CONNECT tunnel failed, response 502` → 代理本身不通，换通道
+  - `schannel: failed to receive handshake, SSL/TLS connection failed` → TLS 握手被拦，通常也是通道问题，换直连/换代理
+  - 判断通道好不好用，`curl -x <代理> -o /dev/null -w "%{http_code}" https://github.com` 比直接推 git 快得多
 - 本机连服务器：`ssh -F .ssh/config yijing`（用工作区的 `rrun.sh` / `rscp.sh` 包装，它们会固定 MSYS 不转换路径）。Tailscale 的 `100.68.42.112:25562` **本地直连不通**，要访问站点得开 SSH 隧道 `-L 25562:127.0.0.1:25562`；且 `-L` 不能用 `rrun.sh` 加（`yijing` 之后的参数会被当成远程命令）。
 
 **数据**
@@ -187,11 +203,10 @@ schtasks /run /tn YijingGomokuBackend
 - 进程启动时间晚于 `.py` 的 mtime（否则没加载新代码）
 - 注意：构建期间 `GET /` 可能刷出一段 404，那是旧进程留下的日志，新进程起来后正常
 
-**⑥ 推 GitHub**（本地直连）
+**⑥ 推 GitHub**（本地直连，通道按第 1 节顺序试）
 
 ```bash
-https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 \
-  env -u HTTPS_PROXY -u HTTP_PROXY git push origin main
+env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy git push origin main
 ```
 
 浏览器端验收可本地跑 `frontend/uitest/*.cjs`（Playwright + Edge，连线上），
@@ -222,7 +237,7 @@ git merge --ff-only srv/main
 ```
 
 - 搬运前先看 `--stat`，确认没有误带 `dist/` 或 `data/`。
-- 推 GitHub 一律带代理，否则报 `502` / 超时（见第 1 节）。
+- 推 GitHub 的通道按第 1 节顺序试（先直连，再代理），别死记某一个。
 
 **GitHub 是唯一异地备份。** 服务器那块硬盘是唯一的可运行副本，别让它落后远端太多——
 服务器侧连续提交几次而没人搬运，等于把工作压在单盘上。
