@@ -98,21 +98,30 @@ export class StudioEnvironment extends Environment {
       leg: '#17181b',
       roughness: 0.6,
       metalness: 0.04,
-      size: 26,
+      // 台面从 26 放到 30，和其余四个棋境一致。原先 26 见方时，棋盘禁区
+      // 右缘 7.75 到桌沿 12.5 只有 4.75 单位净宽，相机想放大一倍多根本摆不下，
+      // 会被 AABB 自动缩回去。放大台面只是给器材留出净空，**默认相机机位
+      // 与倾角一个单位都没动**。
+      size: 30,
       legStyle: 'panel',
       legHeight: TABLE_LEG_HEIGHT,
     });
     void this.applyTableTexture();
 
-    // 台面右后角：一部扫描相机 + 一叠明信片，替代原先手搓的「扇形色卡」。
-    // 桌子只有 26 见方（半宽 13），显式传边界才不会探出桌沿。
-    const tableHalf: [number, number] = [13, 13];
+    const tableHalf: [number, number] = [15, 15];
+    // 胶片相机：footprint 3.8 → 8.0（约 2.1 倍）。原先只比棋子大一点点，
+    // 放大后端正摆在右后角，俯拍才读得出机身、镜头与背带。
+    // 朝向归零不是随便改的：相机长边在 z，斜一点就会把 x 跨度撑过桌面净宽。
     this.placeTableProp({
-      id: 'camera_01', x: 10.0, z: -6.2, footprint: 3.8, rotationY: -0.4,
+      id: 'camera_01', x: 11.1, z: -4.0, footprint: 8.0, rotationY: 0,
       tableHalf,
     });
+    // 明信片模型是一整面**竖直立着**的 4×5 照片墙（z 厚度为零），俯拍只看得见
+    // 一条细线。绕 X 轴 -90° 让它平躺在台面上、正面朝上，并抬高 0.04 避免与
+    // 桌面共面闪烁；顺带放大到 4.6，平放后才看得清是一叠照片。
     this.placeTableProp({
-      id: 'postcard_set', x: 10.2, z: -1.6, footprint: 2.8, rotationY: 0.35,
+      id: 'postcard_set', x: 10.6, z: 5.6, footprint: 4.6,
+      rotationX: -Math.PI / 2, lift: 0.04,
       tableHalf,
     });
   }

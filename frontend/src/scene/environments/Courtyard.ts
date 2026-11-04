@@ -82,10 +82,13 @@ export class CourtyardEnvironment extends Environment {
     void this.applyTableTexture();
     this.zabuton(-21, 4, DECK_Y, '#4a5a53', 0.06);
     this.zabuton(21, 4, DECK_Y, '#8d5a3c', -0.1);
-    // 桌面右侧摆一组真实扫描景石：把庭院的枯山水带进默认取景，
-    // 而不是再画几个同心圆。两块一上一下分开站，避免互穿，也都留在画面里。
+    // 桌面摆一组真实扫描景石：把庭院的枯山水带进默认取景，而不是再画同心圆。
+    // 大石头的尺寸与位置用户认可，保持不动（右上）；小石头从右侧挪到桌子的
+    // 左下角——也就是铜铃**左侧**那块空桌面（x≈-12.2 / z≈7），与右上的大石
+    // 形成对角线呼应。朝向也重新给一个明显的角度，别像同一块石头的缩小副本。
+    // 摆位特意避开铜铃禁区（x -10.55~-5.75）：小石头右缘 -11.0 刚好在它左边。
     this.placeTableProp({ id: 'rock_09', x: 10.6, z: -6.2, footprint: 4.2, rotationY: 0.6 });
-    this.placeTableProp({ id: 'stone_01', x: 11.2, z: 1.8, footprint: 2.6, rotationY: -0.8 });
+    this.placeTableProp({ id: 'stone_01', x: -12.2, z: 7.0, footprint: 2.6, rotationY: 1.2 });
   }
 
   private readonly deckMaterial: THREE.MeshStandardMaterial;

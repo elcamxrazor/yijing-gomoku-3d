@@ -78,8 +78,19 @@ export interface PropOptions {
   /** 目标高度；给了就优先按高度缩放（落地灯具用，否则会矮得看不见）。 */
   height?: number;
   rotationY?: number;
+  /**
+   * 绕 X 轴的额外旋转（弧度），在 `fitModel` 之前施加。
+   *
+   * 有些扫描模型的原始姿态是**竖着立起来的**：`postcard_set` 是一整面
+   * 4×5 的明信片墙，平面在 XY 上、z 厚度为零，正俯拍时只看得见一条细线。
+   * 传 `-Math.PI / 2` 让它绕 X 躺到桌面上，正面朝上，才读得出是一叠照片。
+   * 顺序很重要：先转再量包围盒，缩放与贴地才会按「平躺后」的尺寸算。
+   */
+  rotationX?: number;
   /** 台面高度，默认 `TABLE_SURFACE_Y`。客厅 GLB 茶几要传 -0.31。 */
   groundY?: number;
+  /** 在 groundY 之上再抬一点点：零厚度的平面模型直接贴桌面会 z-fighting。 */
+  lift?: number;
   /** 本场景桌面的可用半宽 / 半深，默认按 `TABLE_SIZE` 算。 */
   tableHalf?: [number, number];
   /** 允许的最大高度，避免高物件穿出取景或盖住棋盘。 */
@@ -476,7 +487,7 @@ export abstract class Environment {
     if (!prototype || this.disposed) return;
 
     const half = options.tableHalf ?? [TABLE_SIZE / 2, TABLE_SIZE / 2];
-    const groundY = options.groundY ?? TABLE_SURFACE_Y;
+    const groundY = (options.groundY ?? TABLE_SURFACE_Y) + (options.lift ?? 0);
     const maxHeight = options.maxHeight ?? 4.2;
     const rotationY = options.rotationY ?? 0;
 
@@ -500,6 +511,8 @@ export abstract class Environment {
     for (const [x, z] of spots) {
       for (const factor of [1, 0.86, 0.72, 0.6, 0.48]) {
         const candidate = prototype.clone(true);
+        // 先摆正姿态再交给 fitModel：它会用旋转后的包围盒反推缩放与落地高度。
+        candidate.rotation.x = options.rotationX ?? 0;
         if (plain) {
           candidate.traverse((node) => {
             if (node instanceof THREE.Mesh) node.material = plain;
