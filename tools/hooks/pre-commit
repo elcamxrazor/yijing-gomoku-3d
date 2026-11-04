@@ -1,0 +1,38 @@
+#!/bin/sh
+# 提交门禁：别把构建产物、数据库、别人未提交的在制品、意外重写的 lock 文件带进提交。
+# 由 `git config core.hooksPath tools/hooks` 启用；本地与服务器跑的是同一份（随仓库同步）。
+
+say() { printf '%s\n' "$*" >&2; }
+block() {
+  say "BLOCKED [pre-commit]: $*"
+  say "  按提示修正后重试。不要使用 --no-verify 绕过。"
+  exit 1
+}
+
+files=$(git diff --cached --name-only --diff-filter=ACMR) || exit 1
+[ -z "$files" ] && exit 0
+
+# 1) 派生物黑名单。这些东西不进 git，却最容易在 build / npm install 时被顺手覆盖。
+if printf '%s\n' "$files" | grep -Eq '(^|/)(dist|node_modules)/|(^|/)backend/data/|(^|/)_restart\.log$|(^|/)[^/]*\.db(-journal|-wal|-shm)?$|(^|/)tsconfig\.tsbuildinfo$|(^|/)\.env$'; then
+  block "暂存区含构建产物 / 数据库 / 环境文件。它们不属于源码，且最容易覆盖别人的在制品。"
+fi
+
+# 2) package-lock.json 被单独改动：多半是 npm install 重写，不该混进无关提交。
+if printf '%s\n' "$files" | grep -Eq '(^|/)package-lock\.json$'; then
+  if ! printf '%s\n' "$files" | grep -Eq '(^|/)package\.json$'; then
+    block "package-lock.json 被单独改动（通常是 npm install 重写）。请 git restore 它，或连同 package.json 一起有意识地提交。"
+  fi
+fi
+
+# 3) 一次提交过多文件，多半是误用了 git add -A。只提醒，不阻断。
+n=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
+if [ "$n" -gt 25 ]; then
+  say "NOTE [pre-commit]: 本次提交 $n 个文件，请确认不是误用 git add -A。"
+fi
+
+# 4) 还有未暂存的改动 —— 可能是另一个会话的在制品。提交不会带上它，但构建会。
+if [ -n "$(git diff --name-only)" ]; then
+  say "NOTE [pre-commit]: 工作区存在未暂存改动，可能是别的会话的在制品；构建前务必先确认。"
+fi
+
+exit 0

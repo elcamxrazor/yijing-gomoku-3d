@@ -1,0 +1,67 @@
+#!/bin/sh
+# 推送门禁：把「同时写」变成「后者必须先重建」，并禁止 force / 越过他人租约。
+# stdin 格式：<local ref> <local sha> <remote ref> <remote sha>
+# 由 `git config core.hooksPath tools/hooks` 启用。
+
+remote="$1"
+say() { printf '%s\n' "$*" >&2; }
+note() { say "NOTE [pre-push]: $*"; }
+
+repo=$(git rev-parse --show-toplevel) || exit 1
+cd "$repo" || exit 1
+
+# 1) 租约：CLAIM.json 未过期且不属于本会话 → 拒绝推送。
+#    靠文件 + 原子 push 仲裁，不靠「大家看一眼文档」。过期即视为无主，避免 AI 崩了留死锁。
+claim="$repo/CLAIM.json"
+if [ -f "$claim" ]; then
+  owner=$(sed -n 's/.*"owner"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$claim" | head -1)
+  expires=$(sed -n 's/.*"expires"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$claim" | head -1)
+  now=$(date +%s 2>/dev/null || echo 0)
+  if [ -n "$expires" ] && [ "$now" -lt "$expires" ] 2>/dev/null; then
+    session="${AI_SESSION:-}"
+    if [ -z "$session" ] || [ "$session" != "$owner" ]; then
+      say "BLOCKED [pre-push]: 仓库当前由 '$owner' 持锁（CLAIM.json），锁尚未过期。"
+      say "  等对方 tools/claim.sh release；确认其已失联则 tools/claim.sh takeover <你的名字> <任务>。"
+      say "  若你就是该会话，用 AI_SESSION=$owner 前缀执行本次 push。"
+      exit 1
+    fi
+  else
+    note "CLAIM.json 已过期或时间不可读，视为无主，放行。"
+  fi
+fi
+
+# 2) 工作区有未提交改动：提醒，别把别人的在制品遗留在这儿。
+dirty=$(git status --porcelain | grep -v '_restart\.log' || true)
+if [ -n "$dirty" ]; then
+  note "工作区有未提交改动，推送不会带上它们；确认不是别的会话留下的半成品。"
+  printf '%s\n' "$dirty" | head -5 >&2
+fi
+
+# 3) 逐 ref 检查非快进。--force 推的正是「远端 sha 不是本地 sha 的祖先」，这里一并拦掉。
+refs_file=$(mktemp 2>/dev/null || echo "/tmp/yijing-prepush-$$")
+cat > "$refs_file"
+while read -r lref lsha rref rsha; do
+  [ -z "$lsha" ] && continue
+  case "$rref" in refs/heads/*) ;; *) continue ;; esac
+  # 全 0 = 远端还没有这个分支
+  case "$rsha" in 0000000000000000000000000000000000000000) continue ;; esac
+
+  if ! git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+    if ! GIT_TERMINAL_PROMPT=0 git fetch -q "$remote" "$rref" </dev/null 2>/dev/null; then
+      note "取不到远端对象（网络波动？），跳过非快进检查；git push 自身仍会拦截。"
+      continue
+    fi
+  fi
+  if ! git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+    continue
+  fi
+  if ! git merge-base --is-ancestor "$rsha" "$lsha"; then
+    say "BLOCKED [pre-push]: $rref 不是快进更新，远端已经有别人的提交。"
+    say "  执行：git fetch origin && git rebase origin/main && 重跑 pytest / npm test / tsc -b && git push"
+    say "  不要使用 --force 或 --force-with-lease。"
+    rm -f "$refs_file"
+    exit 1
+  fi
+done < "$refs_file"
+rm -f "$refs_file"
+exit 0
