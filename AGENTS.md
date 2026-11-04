@@ -69,8 +69,10 @@ npm run typecheck
 npm test
 ```
 
-已知红灯 `test_public_profile_reports_identity_but_not_wallet` 是产品口径冲突
-（`profile_routes` 源码里明写积分是公开的），不是 bug，不要为了让它变绿去改可见性。
+公开名片（`/api/users/{id}/stats`）按产品口径返回 `points`（钱包余额，默认 10000，int），
+但 `unlocked` 仍属私有、禁止暴露。`test_public_profile_reports_identity_but_not_wallet`
+原先断言「不含 points」与口径冲突，已在 `b9a176f` 放宽为：「points 必须为 int 且存在，
+unlocked 仍禁止出现」。当前该用例**通过**（已不是红灯），无需再为它改可见性。
 
 ## 提交
 
