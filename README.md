@@ -50,6 +50,10 @@
 - **开局决定先后手**：双方各自表态「希望谁先手」，一致则直接定，不一致则进入
   3D 抛硬币（硬币两面刻着两位玩家的名字），朝上一面先手。揭晓前谁也不能落子。
 - **房间**：6 位房间号创建 / 加入，实时同步落子。
+- **读秒（每步限时）**：建房 / 约战时可选 `不限时 / 30 / 60 / 120 秒`，**默认不限时**。
+  服务端是唯一权威，只在状态变化时下发截止时刻，客户端本地倒计时而**不逐秒广播**；
+  双方表态先后手期间不计时，对手断线双方停表、重连从剩余时间继续，超时判负
+  （`winReason: timeout`）且只裁决一次。人机局与本地同屏不读秒。
 - **观战**：第三人只读地看同一张棋盘，不占座、不写库，结束时留在原地看结果。
 - **断线**：对手掉线即亮横幅并倒计时，`RECONNECT_GRACE_SECONDS`（默认 120 秒）内回来可恢复，
   超时自动判负（`winReason: offline`）；双方同时掉线时不计时。
@@ -248,6 +252,10 @@ python -m app.main          # 读取 PORT，默认 25562；启动前会做端口
 | `RADIO_DIR` | 空（用仓库根 `radio/`） | 电台曲库目录；为空或不存在时电台关闭 |
 
 > 规则协商超时固定为 120 秒（`OPENING_TIMEOUT_SECONDS`）；一方不表态时服务端会替他补选并揭晓。
+>
+> 读秒同样只有四个档位（`不限时 / 30 / 60 / 120 秒`），白名单写在
+> `backend/app/game.py` 的 `ALLOWED_PER_MOVE_MS`。**刻意不做成环境变量**：每步限时是产品规则
+> （将来按档位做排位统计），不是部署参数；客户端不做白名单外的取值。
 
 ## AI 引擎（Rapfi WASM）
 
@@ -326,6 +334,35 @@ curl http://127.0.0.1:25562/api/health
 | `spectating` | 我是来看棋的（没有颜色，不能落子） |
 | `spectatorCount` | 含自己在内的旁观人数 |
 | `presence` | `{black: 剩余毫秒, white: 剩余毫秒}`，0 表示在线；只在进行中的联机对局里非空 |
+
+### 读秒（每步限时）
+
+一局棋只在**建房 / 约战**时定一次读秒档位，中场不能改——和棋境、规则同一层级。
+
+| 时机 | 行为 |
+| --- | --- |
+| 刚开局、先后手未揭晓（`OPENING_PENDING`） | **不启动**。此刻扣时会冤枉还没分到黑白的人 |
+| 先后手揭晓 | 先手方起表 |
+| 落子成功 | 己方停、对方起，各自重置为完整预算（没有累计、没有加秒） |
+| 悔棋成功 | 重置给「当前该走的一方」，不退还之前消耗的时间 |
+| 重开 | 双方重置为完整预算 |
+| 认输 | 停表，`winReason: resign`，不进超时逻辑 |
+| **对手断线** | **双方停表**并保留剩余；`presence` 的 120 秒宽限照旧走 |
+| 对手重连 | 从剩余时间继续，不从头开始 |
+| 走到 0 | 服务端裁定 `winReason: timeout`，只裁决一次 |
+| 服务端重启 | 恢复进行中的限时局，用落库的截止时刻续算，不无故判负 |
+
+设计要点：
+
+- **时基是墙钟**（`time.time()`），不是 `time.monotonic()`：前者能跨进程重启存活，
+  后者只在单次运行内单调。截止时刻按 `turn_started_at + per_move_ms` 派生，
+  **从不做「剩余 -= 1」的累减**——累减会把每次调度误差攒进结果里。
+- **不为每一手起一个轮询循环**：每局最多一个「睡到截止时刻」的 `asyncio` 任务，
+  判得准最后一秒，也不随对局数线性上涨。
+- **落子与超时抢同一个锁**：`game.move` 进锁后先判时钟，已过期就当场判负并回
+  `CLOCK_EXPIRED`，不再落子；`requestId` 幂等照旧，同一次落子重发不会重复裁决。
+- **前端拿到 `CLOCK_EXPIRED` 不弹红字**：玩家那一刻该看到的是「我输了」，
+  不是「操作失败」。终局快照紧随其后，界面以快照为准。
 
 ## 3D 场景
 
@@ -481,7 +518,7 @@ frontend/src/scene/
 | `lobby.players` | 在线名单，只推给已订阅大厅的连接 |
 | `challenge.incoming` | 收到约战 `{challengeId, from, expiresInMs}` |
 | `challenge.sent` / `challenge.result` | 约战已发出 / 结果 `{status, gameId?, reason?, byMe?}` |
-| `game.snapshot` | 个性化完整快照，客户端以此为准 |
+| `game.snapshot` | 个性化完整快照，客户端以此为准；含 `timeControl` 与 `clock`（见下） |
 | `game.undo_requested` / `game.restart_requested` | 对方请求悔棋 / 重开 |
 | `game.presence` | 某人上线 / 断线 `{userId, name, color, online, reconnectInMs}` |
 | `game.ring` / `game.ring_ack` | 对方按铃 / 按铃回执 `{accepted, cooldownMs}` |
@@ -499,9 +536,9 @@ frontend/src/scene/
 | 类型 | 说明 |
 | --- | --- |
 | `ping` / `lobby.watch` / `game.focus` | 心跳 / 订阅大厅 / 报告正在看的棋局 |
-| `challenge.create` / `challenge.respond` / `challenge.cancel` | 发起 / 接受婉拒 / 撤回约战 |
-| `ai.create` | 开人机局 `{color, scene?, rule?}` |
-| `room.create` / `room.join` / `room.resume` / `room.leave` | 房间操作 |
+| `challenge.create` / `challenge.respond` / `challenge.cancel` | 发起（可带 `timeControl`）/ 接受婉拒 / 撤回约战 |
+| `ai.create` | 开人机局 `{color, scene?, rule?}`（人机局不读秒） |
+| `room.create` / `room.join` / `room.resume` / `room.leave` | 房间操作；`room.create` 可带 `timeControl` |
 | `game.move` / `game.undo` / `game.undo_response` | 落子 / 悔棋 / 悔棋回应 |
 | `game.restart` / `game.restart_response` / `game.resign` | 重开 / 重开回应 / 认输 |
 | `game.ai_config` | 编辑模式下切换哪一方由 AI 执子 `{aiBlack, aiWhite}` |
@@ -512,14 +549,45 @@ frontend/src/scene/
 | `game.ai_request` / `game.ai_respond` / `game.ai_result` | 请求分析 / 回应 / 提交建议点 |
 | `spectate.join` / `spectate.leave` | 进入 / 退出观战 |
 
+**读秒相关字段**
+
+`room.create` / `challenge.create` 的载荷可带（缺省 = 不限时，其余取值一律
+`VALIDATION_ERROR`）：
+
+```json
+{ "timeControl": { "mode": "perMove", "perMoveMs": 30000 } }
+```
+
+`game.snapshot` 里新增两块：
+
+```jsonc
+{
+  "timeControl": { "mode": "none" | "perMove", "perMoveMs": 30000 | 60000 | 120000 | null },
+  "clock": {
+    "side": "black" | "white" | null,  // 当前该谁走
+    "deadlineAt": 1730000000000,       // 截止时刻（epoch 毫秒）；客户端据此本地倒计时
+    "remainingMs": 28123,              // 下发那一刻的剩余，仅作首帧兜底
+    "paused": false                    // 对手断线时为 true：表停着，别让数字骗人
+  }
+}
+```
+
+`clock` 为 `null`（不限时 / 未开局 / 已终局）；`paused` 为 `true` 时前端把数字压暗。
+
+新增终局原因 `winReason: "timeout"`（思考超时），新增错误码 `CLOCK_EXPIRED`
+（落子在截止后到达，服务端已判负并拒绝该手）。
+
+> 刻意**不**每秒广播快照：个性化快照的成本随在线人数线性增长。客户端拿
+> `deadlineAt` 自己算，服务端只在状态变化时下发。
+
 ## 测试与构建
 
 ```bash
-# 后端：规则（含连珠禁手）、认证、AI 着法、联机、观战、复盘、电台
+# 后端：规则（含连珠禁手）、认证、AI 着法、联机、观战、复盘、读秒、电台
 cd backend
 python -m pytest
 
-# 前端：规则、状态、设置、复盘、皮肤、音效、补间等单测
+# 前端：规则、状态、设置、复盘、皮肤、音效、补间、读秒等单测
 cd frontend
 npm test
 
@@ -527,7 +595,7 @@ npm test
 npm run build
 ```
 
-当前基线：后端 **101 项**、前端 **88 项**单测全部通过。
+当前基线：后端 **117 项**、前端 **98 项**单测全部通过。
 `frontend/uitest/` 下另有 Playwright 可视化回归脚本（鸿璐配色、商城、名片、提示环等）。
 
 ## Docker

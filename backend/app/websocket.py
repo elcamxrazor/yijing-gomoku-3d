@@ -41,6 +41,15 @@ def _scene_of(payload: dict) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _time_control_of(payload: dict) -> dict | None:
+    """取出读秒配置。没写就原样返回 None —— 老客户端的「不限时」由此得到保证。
+
+    合法性交给 `GameService.parse_time_control` 判：档位白名单只该有一处真源。
+    """
+    value = payload.get("timeControl")
+    return value if isinstance(value, dict) else None
+
+
 def _tagged(message: dict, response: dict) -> dict:
     if "requestId" in message:
         response["requestId"] = message["requestId"]
@@ -103,7 +112,7 @@ async def dispatch(user, message: dict, app) -> dict:
             target_id = int(_required(payload, "targetId", str))
         except ValueError as exc:
             raise GameError("VALIDATION_ERROR", "payload.targetId 不是有效的玩家编号") from exc
-        view = await lobby.create(user, target_id)
+        view = await lobby.create(user, target_id, _time_control_of(payload))
         return _tagged(message, {"type": "challenge.sent", "payload": view})
     if message_type == "challenge.respond":
         challenge_id = _required(payload, "challengeId", str)
@@ -119,7 +128,9 @@ async def dispatch(user, message: dict, app) -> dict:
         # scene / rule 都是可选的：不带就让服务端随机 / 默认无禁手。
         snapshot = await games.create_ai(user, color, _scene_of(payload), _rule_of(payload))
     elif message_type == "room.create":
-        snapshot = await games.create_room(user, _scene_of(payload), _rule_of(payload))
+        snapshot = await games.create_room(
+            user, _scene_of(payload), _rule_of(payload), _time_control_of(payload)
+        )
     elif message_type == "room.join":
         snapshot = await games.join_room(user, _required(payload, "code", str))
     elif message_type == "room.resume":

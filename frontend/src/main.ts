@@ -3,11 +3,13 @@ import { AuthClient, type ProfileStats } from './auth/AuthClient';
 import { Radio } from './audio/Radio';
 import { SoundManager } from './audio/SoundManager';
 import { LocalGameState } from './game/state';
+import { clockLabel, clockVisible, isLowTime, remainingMs, timeControlLabel } from './game/clock';
 import { offlineOpponent } from './game/presence';
 import { coerceSceneId, sceneName } from './game/scenes';
 import type {
   AiAnalysisRequestEvent, AiAnalysisResultEvent, AnyGameSnapshot, ChallengeInvite, ChallengeResult, ChallengeSent,
   GameSnapshot, LobbyPlayer, LobbyRoster, OpeningResult, OpeningState, PhraseEvent, PlayerColor, PresenceEvent, RingEvent, SessionUser,
+  TimeControl,
 } from './game/types';
 import { GameSocket } from './network/GameSocket';
 import type { ConnectionStatus } from './network/GameSocket';
@@ -36,6 +38,7 @@ import { icon } from './ui/icons';
 import { confirmAction, required, setBusy, toast } from './ui/feedback';
 import { renderShell } from './ui/shell';
 import { readRuleChoice, readSceneChoice } from './ui/scenePicker';
+import { readTimeChoice } from './ui/timePicker';
 import { copyText } from './utils/clipboard';
 
 const LOBBY_POLL_MS = 5_000;
@@ -59,6 +62,18 @@ function formatCountdown(seconds: number): string {
   const total = Math.max(0, Math.ceil(seconds));
   const minutes = Math.floor(total / 60);
   return `${String(minutes).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 叙事行副标题里的读秒后缀。
+ *
+ * 「不限时」的局**不加任何字**：绝大多数对局都是不限时的，每局都挂一句
+ * 「不限时」只会让这一行变成噪音。限时的局才值得说一句。
+ */
+function timeBudgetSuffix(control: TimeControl | null | undefined): string {
+  return control && control.mode === 'perMove'
+    ? ` · 每步 ${timeControlLabel(control)}`
+    : '';
 }
 
 class YijingApp {
@@ -108,6 +123,16 @@ class YijingApp {
   /** 对手断线横幅：宽限到哪一刻结束。null 表示对面都在。 */
   private presence: { color: PlayerColor; name: string; deadline: number } | null = null;
   private presenceTicker: number | null = null;
+
+  /**
+   * 读秒倒计时：这一局每步限时的状态。
+   *
+   * 只存「截止时刻」，**不存剩余秒数**。移动端切到后台时浏览器会把
+   * `setInterval` 节流到每秒甚至停摆，自减会一路走偏；每次从 `deadlineAt`
+   * 重算则回到前台瞬间自愈。
+   */
+  private clock: { deadlineAt: number; paused: boolean } | null = null;
+  private clockTicker: number | null = null;
 
   /** 本地用户档案（积分 / 已解锁 / 已装备）。仅影响外观，存于 localStorage。 */
   private readonly profile: UserProfile = loadProfile();
@@ -692,7 +717,7 @@ class YijingApp {
 
   private sendChallenge(player: LobbyPlayer, button: HTMLButtonElement): void {
     required('online-error').textContent = '';
-    if (!this.trySend('challenge.create', { targetId: player.id })) {
+    if (!this.trySend('challenge.create', { targetId: player.id, ...this.timeControlPayload() })) {
       required('online-error').textContent = '与服务器的连接尚未就绪，请稍后重试';
       return;
     }
@@ -734,6 +759,10 @@ class YijingApp {
     this.incoming = invite;
     this.incomingWindow = Math.max(3_000, invite.expiresInMs);
     required('challenge-from-name').textContent = invite.from.name;
+    // 对方开的读秒条件要提前说清：接受即沿用，等下完一局再告诉人「这局限时 30 秒」
+    // 就晚了——那局可能已经因为想太久输掉了。
+    required('challenge-condition').hidden = false;
+    required('challenge-condition-value').textContent = timeControlLabel(invite.timeControl);
     required<HTMLDialogElement>('challenge-dialog').showModal();
     this.startIncomingCountdown();
     this.sounds.play('join');
@@ -890,6 +919,18 @@ class YijingApp {
     return { ...(scene ? { scene } : {}), ...(rule ? { rule } : {}) };
   }
 
+  /**
+   * 建房 / 约战的读秒选择。
+   *
+   * 选了「不限时」时返回**空对象**，与棋境的处理同理：缺字段让服务端按自己的
+   * 默认值走，而不是把「none」这个常量从客户端再声明一遍——将来服务端改默认值
+   * 时，老客户端不该继续把旧默认值钉死。
+   */
+  private timeControlPayload(): { timeControl?: TimeControl } {
+    const choice = readTimeChoice('online');
+    return choice ? { timeControl: choice } : {};
+  }
+
   private async startAi(): Promise<void> {
     const selected = document.querySelector<HTMLInputElement>('input[name="ai-color"]:checked');
     const color = selected?.value === 'white' ? 'white' : 'black';
@@ -921,7 +962,7 @@ class YijingApp {
     try {
       await this.withSession(() => {
         this.awaitingRemoteGame = true;
-        this.socket.send('room.create', this.scenePayload('room-scene'));
+        this.socket.send('room.create', { ...this.scenePayload('room-scene'), ...this.timeControlPayload() });
         required<HTMLDialogElement>('game-dialog').close();
       });
     } catch (error) {
@@ -1084,6 +1125,7 @@ class YijingApp {
       this.sounds.play('victory');
     }
     this.syncPresence(snapshot);
+    this.syncClock(snapshot);
     // 棋境跟着快照走。换了一局（或换了个房间）才换景，同一局内重复推送的
     // 快照不会触发重建——否则每落一子都要把整套家具拆了重装。
     const sceneId = coerceSceneId(snapshot.scene);
@@ -1314,6 +1356,7 @@ class YijingApp {
     this.closeChallengeDialog();
     this.closeSentCard();
     this.clearPresence();
+    this.clearClock();
     this.clearPhraseBubbles();
     // 在途的 AI 分析请求随对局一起作废；对方弹窗若还开着也一并收掉。
     this.aiAnalysisRequestedGame = null;
@@ -1511,6 +1554,71 @@ class YijingApp {
     timer.textContent = formatCountdown(remaining / 1000);
     timer.hidden = expired;
     alert.hidden = false;
+  }
+
+  /**
+   * 用快照里的 clock 校正倒计时。
+   *
+   * 与 presence 同一套分工：事件负责「刚刚发生了什么」，快照负责「现在是什么
+   * 状态」。服务端只在状态变化时下发快照（落子 / 悔棋 / 重开 / 超时 / 断线 /
+   * 重连），两次快照之间的每一秒都靠本地从 `deadlineAt` 算——绝不逐秒广播。
+   */
+  private syncClock(snapshot: AnyGameSnapshot): void {
+    const clock = snapshot.clock;
+    if (!clockVisible(snapshot.status, clock)) {
+      this.clearClock();
+      return;
+    }
+    this.clock = {
+      deadlineAt: clock.deadlineAt,
+      paused: clock.paused === true,
+    };
+    this.startClockTicker();
+    this.renderClock();
+  }
+
+  private clearClock(): void {
+    this.clock = null;
+    if (this.clockTicker !== null) {
+      window.clearInterval(this.clockTicker);
+      this.clockTicker = null;
+    }
+    const chip = required('turn-clock');
+    if (!chip.hidden) chip.hidden = true;
+    chip.classList.remove('low', 'paused');
+    chip.setAttribute('aria-live', 'off');
+  }
+
+  /**
+   * 1 秒一跳就够了。
+   *
+   * 刻意不挂进 rAF 主循环：倒计时是文字，60fps 重绘 DOM 只费电不增信息；
+   * 也刻意不看 rAF 的时间戳——后台标签页里它根本不跑。
+   */
+  private startClockTicker(): void {
+    if (this.clockTicker !== null) return;
+    this.clockTicker = window.setInterval(() => this.renderClock(), 1000);
+  }
+
+  private renderClock(): void {
+    const chip = required('turn-clock');
+    const state = this.snapshot ? this.clock : null;
+    if (!state) {
+      chip.hidden = true;
+      return;
+    }
+    const left = remainingMs(state.deadlineAt, Date.now());
+    chip.textContent = clockLabel(left);
+    chip.hidden = false;
+    const low = isLowTime(left);
+    chip.classList.toggle('low', low);
+    // 断线停表时把数字压暗：还在走和「暂时不走」必须一眼分得开，
+    // 否则对手掉线的人会以为自己的表还在扣。
+    chip.classList.toggle('paused', state.paused);
+    // 读屏只在最后 10 秒跟进：否则它会把一局棋读成报数。
+    chip.setAttribute('aria-live', low ? 'polite' : 'off');
+    // 到 0 只显示 00:00，**不本地判负**：两端各自计时，差几十毫秒是常态，
+    // 本地抢先宣布「你输了」就会和服务端的裁定打架。判负只认服务端快照。
   }
 
   private handleRing(event: RingEvent): void {
@@ -2380,6 +2488,7 @@ class YijingApp {
     this.replayReturn = this.snapshot;
     // 复盘期间把对局快照让开：服务端推送、积分结算、断线恢复都不该在这时候插进来。
     this.snapshot = null;
+    this.clearClock();
     this.replay = record;
     this.replayIndex = 0;
     this.replaySuggestion = null;
@@ -2701,6 +2810,7 @@ class YijingApp {
     required('black-player-row').classList.remove('active');
     required('white-player-row').classList.remove('active');
     required('turn-badge').hidden = true;
+    this.clearClock();
     required('watch-chip').hidden = true;
     required('room-info').hidden = true;
     required('phrase-zone').hidden = true;
@@ -2725,6 +2835,13 @@ class YijingApp {
     // 弹红字只会吓人——静默丢弃即可。覆盖「终局瞬间广播尚未到达、本地快照仍是
     // playing」的窗口，避免误报「当前不在等待 AI 落子」。
     if (code === 'NOT_AI_TURN' && this.snapshot?.mode === 'ai') {
+      return;
+    }
+    // 时钟判负同理，而且更要安静：玩家这一刻该看到的是「我输了」，
+    // 不是一条红字「本回合已超时」。终局快照就在路上，这里只把在途的
+    // 等待态收干净（awaitingRemoteGame 上面已清），不弹条、不响错误音。
+    if (code === 'CLOCK_EXPIRED') {
+      this.render();
       return;
     }
     if (code === 'AUTH_REQUIRED' || code === 'UNAUTHORIZED') {
@@ -2858,7 +2975,7 @@ class YijingApp {
 
     const modeNames = { local: '本地对弈', ai: 'AI 对弈', online: '好友联机' } as const;
     required('mode-eyebrow').textContent = snapshot
-      ? `${spectating ? '观战' : modeNames[snapshot.mode]} · 十五路无禁手`
+      ? `${spectating ? '观战' : modeNames[snapshot.mode]} · 十五路无禁手${timeBudgetSuffix(snapshot.timeControl)}`
       : '十五路 · 无禁手';
     required('stage-title').textContent = snapshot ? this.stageTitle(snapshot) : '落子有声，心静无界。';
     required('context-text').textContent = snapshot
@@ -2904,9 +3021,11 @@ class YijingApp {
       stone?.classList.toggle('black', snapshot.currentPlayer === 1);
       stone?.classList.toggle('white', snapshot.currentPlayer === 2);
       const label = snapshot.aiThinking ? '对方正在思考' : `${snapshot.currentPlayer === 1 ? '黑方' : '白方'}回合`;
-      const text = turnBadge.querySelector('span:last-child');
-      if (text) text.textContent = label;
+      required('turn-label').textContent = label;
     }
+    // 倒计时就长在回合徽标里：眼睛本来就盯在这一行看「轮到谁」，
+    // 剩余时间跟在一起才有人看；另起一行只会多一个要被扫视的元素。
+    this.renderClock();
 
     required('room-info').hidden = !snapshot?.roomCode;
     required('panel-room-code').textContent = snapshot?.roomCode ?? '——';
@@ -3023,21 +3142,35 @@ class YijingApp {
     else if (!spectating && snapshot.yourColor) title = '胜败之外，皆有收获';
     required('result-title').textContent = title;
 
+    // 超时判负必须说清「谁的表走完了」：只写「一方超时」，输的人不确定是不是
+    // 自己，赢的人也不确定这局到底算不算赢。观战者没有立场，用黑白称呼。
+    const loserName = snapshot.winner === 1 ? '白方' : '黑方';
+    const timeoutText = spectating || !snapshot.yourColor
+      ? `${loserName}思考超时，本局结束`
+      : snapshot.yourColor === snapshot.winner
+        ? '对方思考超时，本局由你取胜'
+        : '你思考超时，本局判负';
     const description = snapshot.winReason === 'draw'
       ? '棋盘已满，感谢这一场势均力敌的对弈'
       : snapshot.winReason === 'offline'
         ? '一方断线超过两分钟，本局自动结束'
-        : `${winnerName} · 谢谢你的专注与投入`;
+        : snapshot.winReason === 'timeout'
+          ? timeoutText
+          : `${winnerName} · 谢谢你的专注与投入`;
     required('result-description').textContent = description;
     required('result-moves').textContent = String(snapshot.moveCount);
     required('result-reason').textContent = snapshot.winReason === 'draw'
       ? '棋盘已满'
       : snapshot.winReason === 'offline'
         ? '断线超时'
-        : snapshot.winReason === 'resign' ? '一方认输' : '五子连珠';
+        : snapshot.winReason === 'timeout'
+          ? '思考超时'
+          : snapshot.winReason === 'resign' ? '一方认输' : '五子连珠';
     required('result-emblem').textContent = snapshot.winReason === 'draw'
       ? '和'
-      : snapshot.winReason === 'offline' ? '断' : snapshot.winReason === 'resign' ? '终' : '五';
+      : snapshot.winReason === 'offline'
+        ? '断'
+        : snapshot.winReason === 'timeout' ? '时' : snapshot.winReason === 'resign' ? '终' : '五';
     // 看棋的人没有「再来一局」：这盘棋不归他。
     required('result-restart').hidden = spectating;
     required('result-home').textContent = spectating ? '离开观战' : '返回模式选择';

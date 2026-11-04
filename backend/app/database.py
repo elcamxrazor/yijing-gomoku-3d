@@ -52,6 +52,11 @@ class Database:
             self._ensure_column("games", "keep_forever", "BOOLEAN NOT NULL DEFAULT 0")
             self._ensure_column("games", "restart_from", "VARCHAR(32)")
             self._ensure_column("games", "excluded_from_stats", "BOOLEAN NOT NULL DEFAULT 0")
+            # 读秒（每步限时）。老库里的行按「不限时」补齐，行为与改动前一致。
+            self._ensure_column("games", "time_mode", "VARCHAR(8) NOT NULL DEFAULT 'none'")
+            self._ensure_column("games", "per_move_ms", "INTEGER")
+            self._ensure_column("games", "turn_started_at", "FLOAT")
+            self._ensure_column("games", "turn_side", "VARCHAR(8)")
 
     def _ensure_column(self, table: str, column: str, ddl: str) -> None:
         """给早版本的库补列。

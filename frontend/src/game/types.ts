@@ -8,7 +8,33 @@ export type Board = Cell[][];
 export type GameMode = 'local' | 'ai' | 'online';
 export type GameStatus = 'waiting' | 'playing' | 'finished';
 /** `offline` 是断线超时判负：和主动认输是两回事，结算时要写清原因。 */
-export type WinReason = 'five' | 'resign' | 'draw' | 'offline' | null;
+export type WinReason = 'five' | 'resign' | 'draw' | 'offline' | 'timeout' | null;
+
+/**
+ * 读秒规则：建局时定下、整局不变。
+ * `none` 是默认值——不改变现有玩家的体验，读秒是新玩家主动选的。
+ */
+export interface TimeControl {
+  mode: 'none' | 'perMove';
+  perMoveMs: number | null;
+}
+
+/**
+ * 此刻的表：谁在走、何时截止。
+ *
+ * 只有 `side` 是服务端权威的「轮到谁」；`deadlineAt` 用来本地倒计时，
+ * 并且**永远用它重算剩余**（`deadlineAt - Date.now()`），不要自减——
+ * 手机切后台时定时器会被节流，自减会一路走偏。
+ */
+export interface GameClock {
+  side: PlayerColor | null;
+  /** 服务端算出的截止时刻（epoch 毫秒）。 */
+  deadlineAt: number | null;
+  /** 下发那一刻的剩余毫秒，仅作首帧兜底。 */
+  remainingMs: number | null;
+  /** 对手断线导致停表：数字冻结，不再倒计时。 */
+  paused?: boolean;
+}
 
 /**
  * 两位棋手的连接状态：值是「还剩多少毫秒的重连宽限」，0 表示在线。
@@ -82,6 +108,10 @@ export interface GameSnapshot {
   /** 旁观者名单（服务端只回 id 与昵称）；人数为 0 时缺省。 */
   spectators?: Array<{ id: string; name: string }>;
   presence?: GamePresence | null;
+  /** 本局用的读秒档位；缺省视为不限时。 */
+  timeControl?: TimeControl;
+  /** 此刻的表；不限时（或已终局）为 null。 */
+  clock?: GameClock | null;
 }
 
 /** 服务端推送的「某人上线 / 断线了」。 */
@@ -197,6 +227,8 @@ export interface ChallengeInvite {
   challengeId: string;
   from: ChallengePlayer;
   expiresInMs: number;
+  /** 对方的读秒条件：接受即沿用，所以先让被约战方看见。 */
+  timeControl?: TimeControl;
 }
 
 export interface ChallengeSent {

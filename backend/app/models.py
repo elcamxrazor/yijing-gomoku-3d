@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -79,6 +79,19 @@ class Game(Base):
     # 一致则直接开局、不一致则抛硬币。未揭晓前落子闸门不开。
     # 结构见 GameService._begin_opening_in_session；揭晓后清空为 None。
     opening: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # 读秒（每步限时）：'none' 不限时（默认）/ 'perMove' 每步固定预算。
+    # 只在联机 PVP 对局生效——人机局的 AI 在浏览器里算，拿秒数判负不公平。
+    time_mode: Mapped[str] = mapped_column(
+        String(8), default="none", server_default="none", nullable=False
+    )
+    # 每步预算毫秒（只允许 game.ALLOWED_PER_MOVE_MS 里的档位）。
+    per_move_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 当前回合的起点（wall clock，epoch 秒）。用浮点而不是 monotonic：
+    # 进程重启后必须能从库里重算剩余时间，monotonic 重启即归零。
+    # 未启表 / 已终局 / 先后手未揭晓时为 NULL。
+    turn_started_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 正在计时的一方：'black' | 'white'。只为可读性与排查，真值由手数奇偶推导。
+    turn_side: Mapped[str | None] = mapped_column(String(8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     moves: Mapped[list["GameMove"]] = relationship(

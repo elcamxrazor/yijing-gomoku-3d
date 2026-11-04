@@ -62,6 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         db.create_all()
         await games.recover_ai_games()
+        # 进行中的限时局：按库里的回合起点重算剩余时间并重新排表。
+        await games.recover_clocks()
         games.start_presence_monitor()
         games.start_retention_monitor()
         lobby.start()

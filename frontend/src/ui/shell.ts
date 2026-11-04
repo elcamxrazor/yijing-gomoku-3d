@@ -1,5 +1,6 @@
 import { icon } from './icons';
 import { rulePickerHtml, scenePickerHtml } from './scenePicker';
+import { timePickerHtml } from './timePicker';
 import { PHRASES } from '../shop/phrases';
 
 /**
@@ -87,7 +88,7 @@ export function renderShell(): string {
       <p class="eyebrow" id="mode-eyebrow">十五路 · 无禁手</p>
       <div class="narration-line">
         <h1 id="stage-title">落子有声，心静无界。</h1>
-        <div class="turn-badge" id="turn-badge" hidden><span class="mini-stone black"></span><span>黑方回合</span></div>
+        <div class="turn-badge" id="turn-badge" hidden><span class="mini-stone black"></span><span id="turn-label">黑方回合</span><span class="turn-clock" id="turn-clock" hidden aria-live="off">00:30</span></div>
       </div>
     </div>
 
@@ -218,6 +219,10 @@ export function renderShell(): string {
         <p class="form-error" id="ai-error"></p><button class="primary-button full-width" id="start-ai">开始对局 ${icon('arrow')}</button>
       </section>
       <section id="online-options" hidden><span class="modal-feature-icon">${icon('users')}</span><p class="eyebrow">PLAY TOGETHER</p><h2>与好友相逢</h2><p class="modal-subtitle">点一位在线棋友发起约战，或交换房间号。</p>
+        <!-- 读秒刻意放在页签**之上**：约战与建房是同一场对局的两种发起方式，
+             对局条件只该选一次。放进「房间号」页签里，点大厅邀请的人就永远
+             选不到读秒了。 -->
+        <p class="form-label-row">本局读秒</p>${timePickerHtml('online')}
         <div class="segmented lobby-tabs"><button class="active" data-lobby-tab="hall">在线大厅</button><button data-lobby-tab="room">房间号</button></div>
         <div id="lobby-hall">
           <div class="lobby-headline"><span class="lobby-count" id="lobby-count"><i></i><span id="lobby-count-text">正在读取大厅…</span></span><span class="lobby-headline-actions"><button class="text-button" id="lobby-profile">我的名片</button><button class="text-button" id="lobby-refresh">刷新</button></span></div>
@@ -238,6 +243,8 @@ export function renderShell(): string {
       <span class="modal-feature-icon">${icon('users')}</span>
       <p class="eyebrow">CHALLENGE</p><h2>一位棋友邀你落子</h2>
       <p class="modal-subtitle"><strong id="challenge-from-name">棋友</strong> 想与你对弈一局，黑白随缘。</p>
+      <!-- 对方的读秒条件必须提前写清楚：接受即沿用，事后再告诉人「这局限时 30 秒」就晚了。 -->
+      <p class="challenge-condition" id="challenge-condition" hidden>读秒 <strong id="challenge-condition-value">不限时</strong></p>
       <div class="challenge-meter"><i id="challenge-meter-bar"></i></div>
       <p class="challenge-countdown" id="challenge-countdown">30 秒内回应</p>
       <div class="confirm-actions"><button class="secondary-button" id="challenge-decline">婉拒</button><button class="primary-button" id="challenge-accept">接受约战</button></div>

@@ -185,6 +185,23 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .mini-stone.black { background: #27312b; box-shadow: inset -1px -1px 2px #0006, inset 1px 1px 2px #ffffff1f; }
 .mini-stone.white { background: #faf9f5; border: 1px solid #d4d4ce; }
 
+/* 读秒倒计时：长在回合徽标里，和「轮到谁」同一行。
+   等宽数字是必须的——比例字体会让 00:28 → 00:27 时整枚徽标左右抖一下。 */
+.turn-clock {
+  margin-left: 2px; padding-left: 8px; border-left: 1px solid rgba(80, 92, 80, .18);
+  font-variant-numeric: tabular-nums; font-weight: 600; color: #4a5b4c;
+  letter-spacing: .02em; transition: color .2s ease;
+}
+/* 最后 10 秒换警示色 + 轻微脉动。只动 opacity/scale，触发的是一次合成，
+   不会把整条叙事行拉进重排。 */
+.turn-clock.low { color: #b0552f; animation: clock-low 1s ease-in-out infinite; }
+/* 对手断线停表：压暗并去掉脉动，让「暂时不走」和「还在走」一眼可分。 */
+.turn-clock.paused { color: #93998f; animation: none; }
+@keyframes clock-low {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
 .ai-thinking {
   position: absolute; z-index: 11; top: 72px; right: clamp(14px, 2vw, 26px);
   display: flex; align-items: center; gap: 4px; padding: 7px 13px; border-radius: 999px;
@@ -956,6 +973,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 }
 .rule-pill input:checked + span {
   border-color: #3e5547; background: rgba(62, 85, 71, .16); color: #29382e;
+}
+
+/* 读秒是四档（不限时 / 30 / 60 / 120），比规则那排多两格。
+   字号与内边距各收一点：四个胶囊平摊同一行，按规则的尺寸在手机上会挤成缝。 */
+.time-picker { margin-bottom: 18px; }
+.time-picker .rule-pill span { padding: 8px 4px; font-size: 11px; }
+
+/* 约战弹窗里的读秒条件：一行小胶囊，居中，语气是「告知」而不是「可操作」。 */
+.challenge-condition {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  width: max-content; max-width: 100%; margin: -14px auto 18px;
+  padding: 4px 12px; border-radius: 999px;
+  border: 1px solid rgba(62, 85, 71, .22); background: rgba(62, 85, 71, .07);
+  color: #6d786e; font-size: 10px; letter-spacing: .04em;
+}
+/* 「不限时」也照常显示：它是玩家有意选的一条赛道，不是「没设置」，
+   藏起来反而让人怀疑对方是不是漏了填。 */
+.challenge-condition strong {
+  color: #3e5547; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 
 /* AI 执子权勾选：只有人机对局中显示。 */

@@ -92,6 +92,7 @@ export function resultLabel(record: Pick<ReplaySummary, 'winner' | 'winReason'>)
   const side = record.winner === 1 ? '黑' : '白';
   if (record.winReason === 'resign') return `${side}胜 · 对方认输`;
   if (record.winReason === 'offline') return `${side}胜 · 对方掉线`;
+  if (record.winReason === 'timeout') return `${side}胜 · 对方超时`;
   return `${side}胜 · 五子连珠`;
 }
 

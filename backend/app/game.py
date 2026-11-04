@@ -27,6 +27,15 @@ ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 # 用现有选择（缺失一方随机补一个）兜底揭晓，避免棋局永久卡在「先后手未定」无法落子。
 OPENING_TIMEOUT_SECONDS = 120
 
+# ---- 读秒（每步限时）------------------------------------------------------
+# 只有联机 PVP 用得上：人机局的 AI 跑在浏览器里，耗时受用户设备与 10MB 权重加载
+# 影响，用秒数判负不公平；本地同屏没有第二个网络端，也没有意义。
+TIME_MODE_NONE = "none"
+TIME_MODE_PER_MOVE = "perMove"
+# 允许的档位。白名单而不是范围校验：宽严随意的数字会让「30/60/120」这套产品
+# 语言失效，也让将来做排位赛时没法按档位统计。
+ALLOWED_PER_MOVE_MS = (30_000, 60_000, 120_000)
+
 
 class GameError(RuntimeError):
     def __init__(self, code: str, message: str):
@@ -50,6 +59,231 @@ class GameService:
         # 与按铃一样不落库；超时后下一次请求会自然覆盖。
         self._ai_requests: dict[str, tuple[str, float]] = {}
         self._presence_tasks: dict[asyncio.AbstractEventLoop, asyncio.Task] = {}
+        # 读秒：每局最多一个「睡到截止时刻」的任务。不用轮询——一个 5 秒一轮的
+        # 循环去比对 deadline，既判不准最后一秒，也随对局数线性上涨。
+        self._clock_tasks: dict[str, asyncio.Task] = {}
+        # 因对手断线而暂停的表：game_id -> 暂停那一刻（wall clock）。
+        # 只存内存：进程重启后按「表在走」处理，与 presence 宽限重启后的处理一致。
+        self._clock_pause: dict[str, float] = {}
+
+    # ------------------------------------------------------------------
+    # 读秒：时基与状态
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def parse_time_control(raw) -> tuple[str, int | None]:
+        """把客户端送来的 ``timeControl`` 规整成 ``(mode, per_move_ms)``。
+
+        缺省（None / 非字典）一律当「不限时」——老客户端不带这个字段，
+        不能因此报错。给了就必须合法：只认白名单里的三档。
+        """
+        if raw is None:
+            return TIME_MODE_NONE, None
+        if not isinstance(raw, dict):
+            raise GameError("VALIDATION_ERROR", "timeControl 必须是对象")
+        mode = raw.get("mode", TIME_MODE_NONE)
+        if mode in (None, TIME_MODE_NONE):
+            return TIME_MODE_NONE, None
+        if mode != TIME_MODE_PER_MOVE:
+            raise GameError("VALIDATION_ERROR", "timeControl.mode 只支持 none / perMove")
+        try:
+            per_move_ms = int(raw.get("perMoveMs"))
+        except (TypeError, ValueError) as exc:
+            raise GameError("VALIDATION_ERROR", "timeControl.perMoveMs 必须是整数毫秒") from exc
+        if per_move_ms not in ALLOWED_PER_MOVE_MS:
+            raise GameError("VALIDATION_ERROR", "每步限时只支持 30 / 60 / 120 秒")
+        return TIME_MODE_PER_MOVE, per_move_ms
+
+    def time_control_payload(self, game: Game) -> dict:
+        """快照里的 ``timeControl``：这一局用的是什么档位。"""
+        mode = getattr(game, "time_mode", None) or TIME_MODE_NONE
+        per_move = getattr(game, "per_move_ms", None)
+        if mode != TIME_MODE_PER_MOVE or not per_move:
+            return {"mode": TIME_MODE_NONE, "perMoveMs": None}
+        return {"mode": TIME_MODE_PER_MOVE, "perMoveMs": int(per_move)}
+
+    @staticmethod
+    def _turn_side_of(game: Game) -> str:
+        """当前该走的一方。手数为偶数轮到黑方，奇数轮到白方（黑先）。"""
+        return "black" if len(game.moves) % 2 == 0 else "white"
+
+    @staticmethod
+    def _clock_eligible(game: Game) -> bool:
+        """这一局此刻该不该跑表。
+
+        四个条件缺一不可：联机、进行中、白座有人、选了每步限时。
+        另外 `turn_started_at` 为 NULL 表示「还没起表」——先后手协商期间就是这样，
+        此时扣时会冤枉还没分到黑白的人。
+        """
+        return (
+            game.mode == "online"
+            and game.status == "playing"
+            and bool(game.white_player_id)
+            # 先后手没揭晓就扣时会冤枉还没分到黑白的人——闸门没开，表就不能走。
+            and game.opening is None
+            and (getattr(game, "time_mode", None) or TIME_MODE_NONE) == TIME_MODE_PER_MOVE
+            and bool(getattr(game, "per_move_ms", None))
+        )
+
+    def _deadline_of(self, game: Game) -> float | None:
+        """本回合的截止时刻（epoch 秒）；不该跑表时返回 None。"""
+        if not self._clock_eligible(game):
+            return None
+        started = getattr(game, "turn_started_at", None)
+        if started is None:
+            return None
+        return float(started) + float(game.per_move_ms) / 1000.0
+
+    def _start_turn_clock(self, game: Game) -> None:
+        """把表重置成「当前该走的人，拿满一份新预算」。落子 / 悔棋 / 重开后调用。"""
+        if not self._clock_eligible(game):
+            game.turn_started_at = None
+            game.turn_side = None
+            return
+        game.turn_started_at = time.time()
+        game.turn_side = self._turn_side_of(game)
+
+    @staticmethod
+    def _stop_turn_clock(game: Game) -> None:
+        game.turn_started_at = None
+        game.turn_side = None
+
+    def _clock_expired(self, game: Game, now: float | None = None) -> bool:
+        """这一刻是否已经超时。暂停中的表永远不算超时。"""
+        deadline = self._deadline_of(game)
+        if deadline is None or game.id in self._clock_pause:
+            return False
+        return (now if now is not None else time.time()) >= deadline
+
+    def _finish_timeout(self, session, game: Game) -> None:
+        """判超时负。幂等由调用方在锁内二次校验保证。"""
+        loser = game.turn_side or self._turn_side_of(game)
+        game.status = "finished"
+        game.winner = WHITE if loser == "black" else BLACK
+        game.win_reason = "timeout"
+        game.generation += 1
+        game.ai_thinking = False
+        game.undo_from = None
+        game.restart_from = None
+        self._stop_turn_clock(game)
+        self._settle(session, game)
+
+    def _cancel_clock(self, game_id: str) -> None:
+        task = self._clock_tasks.pop(game_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _schedule_clock(self, game_id: str, deadline: float | None) -> None:
+        """按截止时刻排一个定时任务；deadline 为 None 就是撤表。"""
+        self._cancel_clock(game_id)
+        if deadline is None or game_id in self._clock_pause:
+            return
+        delay = max(0.05, deadline - time.time())
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # 没有事件循环（例如同步上下文里调用）就不排表，等下次状态变化再补。
+            return
+        self._clock_tasks[game_id] = loop.create_task(self._clock_sleep(game_id, delay))
+
+    async def _arm_clock_from_db(self, game_id: str) -> None:
+        """按库里最新状态重新排表。所有改动棋局的入口在解锁后调它。"""
+        with self.db.session() as session:
+            game = self._load(session, game_id)
+            deadline = self._deadline_of(game)
+        self._schedule_clock(game_id, deadline)
+
+    async def _clock_sleep(self, game_id: str, delay: float) -> None:
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        await self._declare_timeout(game_id)
+
+    async def _declare_timeout(self, game_id: str) -> None:
+        """到点了：在既有的对局锁里二次确认，然后判负。
+
+        二次确认是必需的——定时任务可能在「这一手已经落下」之后才醒过来，
+        那它看到的就是一个轮次已经变了（或已经终局）的棋局，此时不能判任何人超时。
+        """
+        fired = False
+        async with self._lock(game_id):
+            with self.db.session() as session:
+                game = self._load(session, game_id)
+                if not self._clock_eligible(game) or game.id in self._clock_pause:
+                    self._cancel_clock(game_id)
+                    return
+                deadline = self._deadline_of(game)
+                if deadline is None or time.time() < deadline:
+                    self._cancel_clock(game_id)
+                    return
+                self._finish_timeout(session, game)
+                fired = True
+        self._cancel_clock(game_id)
+        if fired:
+            await self.broadcast(game_id)
+
+    async def recover_clocks(self) -> None:
+        """启动时把进行中的限时局接回来。
+
+        与规格的一处有意偏离：如果停机期间本回合已经过期，这里**补满一份新预算**，
+        而不是立刻判负。停机是服务端的事（部署、崩溃、重启机器），不该由棋手买单；
+        真按「过期即判负」做，每次部署都会顺手判掉一批在下的棋。
+        """
+        with self.db.session() as session:
+            games = list(session.scalars(
+                select(Game).where(Game.mode == "online", Game.status == "playing")
+            ))
+            pending: list[tuple[str, float | None]] = []
+            now = time.time()
+            for game in games:
+                if not self._clock_eligible(game):
+                    continue
+                deadline = self._deadline_of(game)
+                if deadline is None or deadline <= now:
+                    game.turn_started_at = now
+                    game.turn_side = self._turn_side_of(game)
+                    deadline = game.turn_started_at + float(game.per_move_ms) / 1000.0
+                pending.append((game.id, deadline))
+        for game_id, deadline in pending:
+            self._schedule_clock(game_id, deadline)
+
+    def _pause_clock(self, game: Game, now: float) -> None:
+        """对手断线 → 停表。记下暂停那一刻，重连时按停掉的时长往后平移。"""
+        if not self._clock_eligible(game):
+            return
+        if game.turn_started_at is None or game.id in self._clock_pause:
+            return
+        self._clock_pause[game.id] = now
+        self._cancel_clock(game.id)
+
+    def _resume_clock(self, game: Game, now: float) -> bool:
+        """对手回来了 → 从剩余时间继续（把暂停时长补到起点上，而不是从头开始）。"""
+        paused_at = self._clock_pause.pop(game.id, None)
+        if paused_at is None:
+            return False
+        if game.turn_started_at is None:
+            return False
+        game.turn_started_at += max(0.0, now - paused_at)
+        return True
+
+    def clock_payload(self, game: Game) -> dict | None:
+        """快照里的 ``clock``：谁在走、何时截止、还剩多少。
+
+        剩余时间按「暂停时刻」或「此刻」重算，绝不做累减——进程被阻塞、GC、
+        重连、甚至服务端重启都不会累积漂移。
+        """
+        deadline = self._deadline_of(game)
+        if deadline is None:
+            return None
+        paused_at = self._clock_pause.get(game.id)
+        now = paused_at if paused_at is not None else time.time()
+        return {
+            "side": game.turn_side or self._turn_side_of(game),
+            "deadlineAt": int(deadline * 1000),
+            "remainingMs": int(max(0.0, deadline - now) * 1000),
+            "paused": paused_at is not None,
+        }
 
     def _lock(self, game_id: str) -> asyncio.Lock:
         return self._locks.setdefault(game_id, asyncio.Lock())
@@ -220,6 +454,10 @@ class GameService:
             "restartRequest": restart_request,
             "restartPending": restart_pending,
             "opening": opening_payload,
+            # 读秒：timeControl 是「本局的规则」，clock 是「此刻的表」。
+            # 后者不要每秒重推快照——前端拿 deadlineAt 自己倒计时。
+            "timeControl": self.time_control_payload(game),
+            "clock": self.clock_payload(game),
         }
 
     def _spectator_dicts(self, session, game_id: str) -> list[dict]:
@@ -357,6 +595,7 @@ class GameService:
                 resolved = self._maybe_resolve_in_session(session, game)
         if resolved:
             await self._after_opening_resolved(game_id, resolved)
+            await self._arm_clock_from_db(game_id)
             await self.broadcast(game_id)
         return {"accepted": True}
 
@@ -397,6 +636,8 @@ class GameService:
             game.black_player_id, game.white_player_id = b_id, a_id
         # 揭晓即清掉协商状态：落子闸门随之打开，结果改由事件下发、快照颜色反映。
         game.opening = None
+        # 闸门一开，读秒就起表——顺序不能反：协商期间扣时会冤枉还没分到黑白的人。
+        self._start_turn_clock(game)
 
         seats = {
             "a": self._player_dict(session, a_id) or {"id": a_id, "name": a_id},
@@ -432,7 +673,15 @@ class GameService:
                     game.ai_thinking = True
                     game.generation += 1
 
-    async def create_room(self, user: User, scene: str | None = None, rule: str | None = None) -> dict:
+    async def create_room(
+        self,
+        user: User,
+        scene: str | None = None,
+        rule: str | None = None,
+        time_control: dict | None = None,
+    ) -> dict:
+        # 读秒是「建局时定下、整局不变」的规则，和棋境/规则同一层级。
+        time_mode, per_move_ms = self.parse_time_control(time_control)
         with self.db.session() as session:
             code = None
             for _ in range(20):
@@ -448,6 +697,8 @@ class GameService:
                 # 房主没选就随机——「随机棋境」本来就是产品的一部分。
                 scene=normalize_scene(scene) if scene else random_scene(),
                 rule=normalize_variant(rule),
+                time_mode=time_mode,
+                per_move_ms=per_move_ms,
             )
             session.add(game)
             session.flush()
@@ -456,7 +707,12 @@ class GameService:
         return snapshot
 
     async def create_challenge(
-        self, first_id: int, second_id: int, scene: str | None = None, rule: str | None = None
+        self,
+        first_id: int,
+        second_id: int,
+        scene: str | None = None,
+        rule: str | None = None,
+        time_control: dict | None = None,
     ) -> str:
         """Create an online game between two players matched in the lobby.
 
@@ -470,12 +726,15 @@ class GameService:
         """
         black, white = str(first_id), str(second_id)
         game_id = str(uuid.uuid4())
+        time_mode, per_move_ms = self.parse_time_control(time_control)
         with self.db.session() as session:
             game = Game(
                 id=game_id, mode="online", status="playing",
                 black_player_id=black, white_player_id=white,
                 scene=normalize_scene(scene) if scene else random_scene(),
                 rule=normalize_variant(rule),
+                time_mode=time_mode,
+                per_move_ms=per_move_ms,
             )
             session.add(game)
             # 进入开局协商：双方到位即可各自选择希望谁先手。
@@ -509,6 +768,7 @@ class GameService:
             return self._snapshot(session, game, user.id)
 
     async def move(self, user: User, game_id: str, row: int, col: int) -> None:
+        timed_out = False
         async with self._lock(game_id):
             with self.db.session() as session:
                 game = self._load(session, game_id)
@@ -520,44 +780,64 @@ class GameService:
                     raise GameError("OPENING_PENDING", "先后手尚未决定，还不能落子")
                 if game.status != "playing":
                     raise GameError("GAME_NOT_PLAYING", "棋局当前不可落子")
-                if game.ai_thinking:
-                    raise GameError("AI_THINKING", "AI 正在思考")
-                history = self._history(game)
-                current = BLACK if len(history) % 2 == 0 else WHITE
-                if game.mode == "ai":
-                    # 人机局：落子权跟「当前轮次方」走，不跟座位走——编辑模式
-                    # （双方都不是 AI）下玩家可以替任意一方落子。
-                    if self._ai_flag(game, current):
-                        raise GameError("NOT_YOUR_TURN", "当前这一手由 AI 执子")
-                    color = current
-                elif color != current:
-                    raise GameError("NOT_YOUR_TURN", "尚未轮到你")
-                board, rules = board_from_moves(history, getattr(game, "rule", None) or "freestyle")
-                try:
-                    rules.validate_move(board, row, col, color, history)
-                except RuleViolation as exc:
-                    raise GameError("INVALID_MOVE", str(exc)) from exc
-                move = GameMove(game_id=game.id, move_index=len(history), row=row, col=col, color=color)
-                session.add(move)
-                game.moves.append(move)
-                board[row][col] = color
-                game.undo_from = None
-                if rules.has_five(board, row, col, color):
-                    game.status, game.winner, game.win_reason = "finished", color, "five"
-                    game.ai_thinking = False
-                    game.generation += 1
-                    self._settle(session, game)
-                elif len(history) + 1 == 15 * 15:
-                    game.status, game.winner, game.win_reason = "finished", 0, "draw"
-                    game.ai_thinking = False
-                    game.generation += 1
-                    self._settle(session, game)
-                elif game.mode == "ai":
-                    # 下一手是否由 AI 执子，看该方的执子权标志（可被 ai_config 切换）。
-                    next_color = BLACK if (len(history) + 1) % 2 == 0 else WHITE
-                    game.ai_thinking = self._ai_flag(game, next_color)
-                    game.generation += 1
+                # 「最后一刻落子」与「超时裁决」必然打一架。这里在同一把锁里先判表：
+                # 过了截止时刻就当场判负并拒收这一手，不会出现既判超时又落了子。
+                if self._clock_expired(game):
+                    self._finish_timeout(session, game)
+                    timed_out = True
+                else:
+                    await self._apply_move(session, game, color, row, col)
+        # 表要在会话提交之后再排：定时任务读的是库里的状态。
+        await self._arm_clock_from_db(game_id)
+        if timed_out:
+            await self.broadcast(game_id)
+            raise GameError("CLOCK_EXPIRED", "本回合已超时")
         await self.broadcast(game_id)
+
+    async def _apply_move(self, session, game: Game, color: int, row: int, col: int) -> None:
+        """落子本体（不含读秒判定）。调用方已持有对局锁并校验过轮次之外的前置条件。"""
+        if game.ai_thinking:
+            raise GameError("AI_THINKING", "AI 正在思考")
+        history = self._history(game)
+        current = BLACK if len(history) % 2 == 0 else WHITE
+        if game.mode == "ai":
+            # 人机局：落子权跟「当前轮次方」走，不跟座位走——编辑模式
+            # （双方都不是 AI）下玩家可以替任意一方落子。
+            if self._ai_flag(game, current):
+                raise GameError("NOT_YOUR_TURN", "当前这一手由 AI 执子")
+            color = current
+        elif color != current:
+            raise GameError("NOT_YOUR_TURN", "尚未轮到你")
+        board, rules = board_from_moves(history, getattr(game, "rule", None) or "freestyle")
+        try:
+            rules.validate_move(board, row, col, color, history)
+        except RuleViolation as exc:
+            raise GameError("INVALID_MOVE", str(exc)) from exc
+        move = GameMove(game_id=game.id, move_index=len(history), row=row, col=col, color=color)
+        session.add(move)
+        game.moves.append(move)
+        board[row][col] = color
+        game.undo_from = None
+        if rules.has_five(board, row, col, color):
+            game.status, game.winner, game.win_reason = "finished", color, "five"
+            game.ai_thinking = False
+            game.generation += 1
+            self._stop_turn_clock(game)
+            self._settle(session, game)
+        elif len(history) + 1 == 15 * 15:
+            game.status, game.winner, game.win_reason = "finished", 0, "draw"
+            game.ai_thinking = False
+            game.generation += 1
+            self._stop_turn_clock(game)
+            self._settle(session, game)
+        elif game.mode == "ai":
+            # 下一手是否由 AI 执子，看该方的执子权标志（可被 ai_config 切换）。
+            next_color = BLACK if (len(history) + 1) % 2 == 0 else WHITE
+            game.ai_thinking = self._ai_flag(game, next_color)
+            game.generation += 1
+        else:
+            # 己方停、对方起，各拿一份完整的新预算。
+            self._start_turn_clock(game)
 
     async def submit_ai_move(self, user: User, game_id: str, row: int, col: int) -> None:
         """接收客户端引擎代算的 AI 着法。
@@ -678,9 +958,17 @@ class GameService:
                     moves = sorted(game.moves, key=lambda item: item.move_index)
                     if not moves:
                         raise GameError("NO_UNDO_REQUEST", "没有可撤回落子")
-                    session.delete(moves[-1])
+                    last = moves[-1]
+                    session.delete(last)
+                    # 同步把内存里的着法列表也撤掉：读秒要靠手数奇偶判断轮到谁，
+                    # 只删库不删列表会让「该谁走」算错一位，表就起在错的人身上。
+                    if last in game.moves:
+                        game.moves.remove(last)
                     game.generation += 1
+                    # 悔棋不退还之前消耗的时间：重置成「现在该走的那个人，拿满一份」。
+                    self._start_turn_clock(game)
                 game.undo_from = None
+        await self._arm_clock_from_db(game_id)
         await self.broadcast(game_id)
 
     @staticmethod
@@ -710,6 +998,9 @@ class GameService:
             undo_from=None,
             # 重开归档的旧局不参与胜率统计：玩家点「重开」即表示放弃这一局的胜负归属。
             excluded_from_stats=True,
+            # 读秒参数也一并留档，复盘时才说得清「这局是 60 秒一步还是不限时」。
+            time_mode=getattr(game, "time_mode", None) or TIME_MODE_NONE,
+            per_move_ms=getattr(game, "per_move_ms", None),
             # 时间也一并搬过去：复盘里的「用时」是按这一盘的起止算的，
             # 若延用房间的创建时间，第二盘会把第一盘的时长也算进去。
             created_at=game.created_at,
@@ -733,8 +1024,7 @@ class GameService:
         white = game.white_player_id
         return game.mode == "online" and bool(white) and white != AI_ID
 
-    @staticmethod
-    def _do_restart(session, game: Game) -> None:
+    def _do_restart(self, session, game: Game) -> None:
         """真正清空并重置一盘（归档旧局 + 清盘 + 轮换座位）。
 
         重开请求被同意、或单机/人机无需对方同意时都会走到这里；幂等于调用方。
@@ -758,6 +1048,8 @@ class GameService:
         # AI 单人局沿用人类所选颜色，黑先。
         if game.status == "playing" and game.mode == "online":
             game.black_player_id, game.white_player_id = game.white_player_id, game.black_player_id
+        # 新一盘的起点，读秒重新给满：上一盘剩得再少也不带过来。
+        self._start_turn_clock(game)
 
     async def restart(self, user: User, game_id: str) -> None:
         """重开本局。
@@ -796,6 +1088,7 @@ class GameService:
                     game = self._load(session, game_id)
                     game.ai_thinking = self._ai_flag(game, BLACK)
                     game.generation += 1
+        await self._arm_clock_from_db(game_id)
         await self.broadcast(game_id)
 
     async def restart_response(self, user: User, game_id: str, accept: bool) -> None:
@@ -807,9 +1100,10 @@ class GameService:
                 if not color or not game.restart_from or game.restart_from == str(user.id):
                     raise GameError("NO_RESTART_REQUEST", "没有可确认的重开请求")
                 if accept:
-                    GameService._do_restart(session, game)
+                    self._do_restart(session, game)
                 else:
                     game.restart_from = None
+        await self._arm_clock_from_db(game_id)
         await self.broadcast(game_id)
 
     async def ring(self, user, game_id: str) -> dict:
@@ -1029,7 +1323,10 @@ class GameService:
                 game.generation += 1
                 game.ai_thinking = False
                 game.undo_from = None
+                # 认输不是超时：停表，别让定时任务稍后再判一次。
+                self._stop_turn_clock(game)
                 self._settle(session, game)
+        await self._arm_clock_from_db(game_id)
         await self.broadcast(game_id)
 
     async def leave(self, user: User, game_id: str) -> None:
@@ -1053,6 +1350,8 @@ class GameService:
                 game.ai_thinking = False
                 game.undo_from = None
                 game.restart_from = None
+                self._stop_turn_clock(game)
+        await self._arm_clock_from_db(game_id)
         await self.broadcast(game_id)
 
     async def broadcast(self, game_id: str) -> None:
@@ -1124,6 +1423,9 @@ class GameService:
             # 掉线通知刚排上队，人已经重连回来了：这条提示已经过时。
             return
         now = time.monotonic()
+        # 读秒要的是 wall clock：它的起点存在库里（turn_started_at），
+        # 而 monotonic 的零点每次开机都重置，两者不能混用。
+        wall = time.time()
         grace_ms = int(self.settings.reconnect_grace_seconds * 1000)
         events: list[tuple[int, dict]] = []
         games_changed: list[str] = []
@@ -1146,6 +1448,8 @@ class GameService:
                 key = (game.id, str(user_id))
                 if online:
                     self._offline_since.pop(key, None)
+                    # 人回来了：把暂停的读秒从剩余时间接着走（不是从头开始）。
+                    self._resume_clock(game, wall)
                 else:
                     if not self.hub.is_online(int(opponent)):
                         # 对面也不在，这条提示没人看；计时留到他回来时再重新开始，
@@ -1153,6 +1457,9 @@ class GameService:
                         self._offline_since.pop(key, None)
                         continue
                     self._offline_since[key] = now
+                    # 对手断线必须停表：否则断线判负和超时判负会同时裁决，
+                    # 同一局会收到两个互相矛盾的终局快照。
+                    self._pause_clock(game, wall)
                 games_changed.append(game.id)
                 events.append((int(opponent), {
                     "type": "game.presence",
@@ -1170,6 +1477,7 @@ class GameService:
         # 快照里也带着 presence：事件负责「现在发生了什么」，
         # 快照负责「现在是什么状态」，两者都发一遍，断线重连时才不会各说各话。
         for game_id in games_changed:
+            await self._arm_clock_from_db(game_id)
             await self.hub.broadcast_game(game_id)
 
     def start_presence_monitor(self) -> None:
@@ -1228,6 +1536,7 @@ class GameService:
                         resolved = self._resolve_opening_in_session(session, game)
             if resolved:
                 await self._after_opening_resolved(game_id, resolved)
+                await self._arm_clock_from_db(game_id)
                 await self.broadcast(game_id)
 
     async def _check_disconnects(self) -> None:
@@ -1266,16 +1575,24 @@ class GameService:
                     game.undo_from = None
                     game.generation += 1
                     game.ai_thinking = False
+                    # 已经由断线判负收场，读秒必须彻底退出这盘棋。
+                    self._stop_turn_clock(game)
+                    self._clock_pause.pop(game.id, None)
                     expired.append(game.id)
                     for existing in [k for k in self._offline_since if k[0] == game.id]:
                         self._offline_since.pop(existing, None)
                     break
         for game_id in expired:
+            self._cancel_clock(game_id)
             await self.broadcast(game_id)
 
     _retention_task: asyncio.Task | None = None
 
     async def shutdown(self) -> None:
+        # 读秒任务不取消的话，关停时会有一批「到点判负」的回调打在已经释放的库上。
+        for game_id in list(self._clock_tasks):
+            self._cancel_clock(game_id)
+        self._clock_pause.clear()
         task = self._presence_tasks.pop(asyncio.get_running_loop(), None)
         if task:
             task.cancel()

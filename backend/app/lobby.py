@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 
@@ -43,6 +43,9 @@ class Challenge:
     to_id: int
     created_at: float
     ttl: float
+    # 约战条件：由发起方在建约时定下，接受即沿用（不接受方另议——
+    # 一个「接受/婉拒」的握手容不下一场讨价还价）。
+    time_control: dict = field(default_factory=lambda: {"mode": "none", "perMoveMs": None})
 
     def expired(self, now: float) -> bool:
         return now - self.created_at >= self.ttl
@@ -227,9 +230,12 @@ class LobbyService:
                     "payload": {"challengeId": item.id, "status": "expired"},
                 })
 
-    async def create(self, user, target_id: int) -> dict:
+    async def create(self, user, target_id: int, time_control: dict | None = None) -> dict:
         if target_id == user.id:
             raise GameError("CHALLENGE_SELF", "不能约战自己")
+        # 先校验再落任何状态：一个非法的档位不该在别处留下半条约战。
+        time_mode, per_move_ms = self.games.parse_time_control(time_control)
+        normalized_time = {"mode": time_mode, "perMoveMs": per_move_ms}
         with self.games.db.session() as session:
             target = session.get(User, target_id)
             target_name = target.name if target else None
@@ -267,6 +273,7 @@ class LobbyService:
                 to_id=target_id,
                 created_at=now,
                 ttl=self.ttl,
+                time_control=normalized_time,
             )
             self._challenges[challenge.id] = challenge
 
@@ -276,6 +283,8 @@ class LobbyService:
                 "challengeId": challenge.id,
                 "from": {"id": str(user.id), "name": user.name, "guest": bool(user.guest)},
                 "expiresInMs": challenge.remaining_ms(_now()),
+                # 接受即沿用：被约战方有权先知道这局要不要读秒。
+                "timeControl": challenge.time_control,
             },
         })
         return self._sent(challenge, target_name, target_guest, now)
@@ -325,7 +334,9 @@ class LobbyService:
                     stale = self._involving(user.id) + self._involving(opponent_id)
                     for item in stale:
                         self._challenges.pop(item.id, None)
-                    accepted_game = await self.games.create_challenge(opponent_id, user.id)
+                    accepted_game = await self.games.create_challenge(
+                        opponent_id, user.id, time_control=challenge.time_control
+                    )
 
         if failure is not None:
             code, message, own_reason = failure
