@@ -27,14 +27,19 @@ class SPAStaticFiles(StaticFiles):
     """Serve built assets and fall back to index.html for client-side routes."""
 
     async def get_response(self, path: str, scope):
+        # Starlette 进来前会跑 os.path.normpath，Windows 上 /api/x 会变成 api\x。
+        # 直接用 path.startswith("api/") 判，在 Windows 部署里永远不成立，
+        # 未知 API 路径会回落成 index.html（200 + HTML），把客户端的错误藏起来。
+        relative = path.replace("\\", "/").lstrip("/")
+        first_segment = relative.split("/", 1)[0]
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if (
                 exc.status_code == 404
                 and scope["method"] == "GET"
-                and not path.startswith(("api/", "assets/"))
-                and "." not in path.rsplit("/", 1)[-1]
+                and first_segment not in {"api", "assets", "ws"}
+                and "." not in relative.rsplit("/", 1)[-1]
             ):
                 return await super().get_response("index.html", scope)
             raise

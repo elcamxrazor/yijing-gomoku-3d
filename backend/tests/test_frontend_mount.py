@@ -64,6 +64,24 @@ def test_client_side_routes_fall_back_to_index(tmp_path):
         assert "棋局" in lobby.text
 
 
+def test_unknown_api_path_stays_404(tmp_path):
+    """未知的 /api/* 必须 404，不能回落成前端页面。
+
+    Windows 上 StaticFiles 收到的路径是 `api\\x`（normpath 把 / 换成 \\），
+    早先的 startswith("api/") 判不出来，接口 404 会被 index.html 200 吞掉。
+    """
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>棋局</title>", encoding="utf-8")
+
+    with TestClient(mount_app([dist])) as client:
+        assert client.get("/api/does-not-exist").status_code == 404
+        assert client.get("/api").status_code == 404
+        assert client.get("/assets/missing.js").status_code == 404
+        # 前端路由仍然回落到 index.html，别把 SPA 一起改坏
+        assert client.get("/lobby").status_code == 200
+
+
 def test_health_reports_frontend_state(client):
     payload = client.get("/api/health").json()
     assert payload["status"] == "ok"
