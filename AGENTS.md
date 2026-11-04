@@ -1,8 +1,8 @@
 # AGENTS.md — 多会话协作约定
 
 > **开工前请先读完本文件再动手。**
-> 这个仓库有多个 AI 会话先后甚至并发修改。下面「硬规则」里的每一条，都已经因为被违反而
-> 造成过真实损失：有会话的未提交工作被工作区操作打断，有半成品代码差点被打上生产。
+> 这个仓库有多个 AI 会话先后甚至并发修改。「硬规则」不是形式主义——每一条背后都有真实踩过的坑：
+> 有会话的未提交工作被工作区操作打断，有半成品代码在准备上线的边缘被拦下。
 
 ---
 
@@ -39,17 +39,33 @@
 
 ---
 
-## 2. 角色分工
+## 2. 角色分工与交接
 
-同一时间，**源码只允许一个会话修改**。其余会话只读 + 运维。
+两个会话**都可以改代码**，但**同一时刻只能有一个在改**。换班由用户口头指定，不靠会话之间自行协商。
 
 | 角色 | 可以做什么 | 不可以做什么 |
 | --- | --- | --- |
-| **改码会话**（任一时刻仅一个） | 改 `frontend/` `backend/` 源码、提交、构建、重启 | — |
-| **只读会话** | `git status/log/diff/show`、跑测试、搬运 bundle、查日志、运维（计划任务 / 进程 / 数据清理） | 改源码文件、`stash`、`checkout`、`clean`、`build`、重启服务 |
+| **当班会话**（用户指定） | 改 `frontend/` `backend/` 源码、提交、构建、重启、验证、推 GitHub | 在对方未交班时抢改 |
+| **待命会话** | 只读 `status/log/diff/show`、跑测试、查日志、代码审查、运维（计划任务 / 进程 / 数据清理）、搬运 bundle | 改源码、`stash`、`checkout`、`clean`、`build`、重启 |
 
-- 要切换角色，先在对话里说清楚「我现在要改代码」，等上一方确认收工。
-- 只读会话要改代码时，同样要先确认 `git status` 干净并声明接管。
+- **默认当班方是本地会话。** 服务器侧 AI 有额度限制，不宜承担主力开发；它适合接手「已经在手上、正在写的那一段」，写完就交回。
+- 不要靠猜对方在不在改。**进入当班只认 `git status`**：不干净说明上一位还没交班，停手、问人。
+
+### 交接协议
+
+交班时必须满足三条，缺一条就会出事：
+
+1. **工作区干净** —— 上一位的改动要么已 commit，要么明确说明丢弃。**不许带着未提交改动交班。**
+2. **两边 HEAD 一致** —— 本地 clone 与服务器仓库指向同一个 commit（同步见第 7 节）。
+3. **线上状态已知** —— 当前线上产物哈希是什么、有没有已提交但未部署的代码。
+
+交班时在对话里报一行：
+
+```
+交班：HEAD=<sha> 工作区干净 线上=<产物哈希|未构建> 未部署=<有/无> 备注=<一句话>
+```
+
+接手方先 `git status` + `git log -1` 核对这两项，再开工。
 
 ---
 
@@ -87,21 +103,25 @@ commit 之后工作区应当干净，语义上表示「可以给别人用/可以
 - commit message 用中文，前缀沿用现有风格：`feat:` / `fix:` / `test:` / `docs:` / `refactor:` / `chore:`。
 - 一个 commit 做一件事，不要混合「功能 + 顺手改格式」。
 - 提交前跑一遍该跑的门禁（见第 5 节）。
-- **提交后要在对话里通知**：因为服务器推不了 GitHub，远端同步靠别人搬运。无人知晓的 commit 只存在于服务器一块硬盘上。
+- **提交后要在对话里通知**，并说明「已推 GitHub / 未推」。没被推到远端的 commit 只存在于一块硬盘上。
 
 ---
 
 ## 5. 提交前门禁
 
+**本地 clone 有完整依赖**（`node_modules` 已装，node v22.22.2，与服务器一致），
+类型检查与单测都在本地跑，快：
+
 ```bash
-# 后端（在 backend/ 下）
+# 后端（backend/ 下）
 python -m pytest -q
 
-# 前端（在 frontend/ 下）
-npx tsc -b
-npx vitest run
-npx vite build
+# 前端（frontend/ 下）
+npm run typecheck     # tsc -b
+npm test              # vitest run
 ```
+
+`vite build` **只在服务器执行**（产物只有服务器用，且 `dist/` 含大量模型资源，没必要来回传）。
 
 - 已知红灯：`test_profile.py::test_public_profile_reports_identity_but_not_wallet`。
   原因是**产品口径冲突**（`profile_routes` 的 docstring 明写「积分是公开分数」，测试却断言不得公开），
@@ -111,35 +131,101 @@ npx vite build
 
 ---
 
-## 6. 上线与验收
+## 6. 从改码到上线
 
-1. `git status` 干净
-2. `frontend/`：`npx tsc -b && npx vite build`，记下新的产物哈希（`dist/assets/index-*.js`）
-3. 重启后端：`schtasks /run /tn YijingGomokuBackend`（已起过的先停旧进程）
-4. 验证：首页 HTTP 200、引用的 js/css 也是 200、产物哈希与刚才构建一致
-5. 若改了 `.py`，必须确认新进程已加载新代码（对比进程启动时间与源文件 mtime）
+**本地改码、服务器构建运行**，服务器不承担编辑工作。完整链路：
 
-浏览器端验收可以本地跑 `frontend/uitest/*.cjs`（Playwright + Edge，连线上），
-需要 `NODE_PATH=C:/Users/45126/_pwtest/node_modules`（**必须 Windows 风格路径**）。
+**① 本地**（`gomoku-work/`，本机 clone）
+
+```bash
+git status                 # 必须干净，确认已接手
+# ...改代码...
+npm run typecheck && npm test      # frontend/
+python -m pytest -q                # backend/
+git add <文件> && git commit -m "feat: ..."
+```
+
+**② 同步到服务器**（服务器拉不了 GitHub，只能靠上传 bundle）
+
+```bash
+# 本地：基线用「服务器当前 HEAD」，中间提交会一并带入
+git bundle create ../up.bundle <服务器当前HEAD>..main
+rscp.sh ../up.bundle yijing:C:/Users/45126/up.bundle
+```
+
+```bat
+:: 服务器（git 需全路径）
+cd /d C:\Users\45126\WorkBuddy\2026-10-31-07-00-13
+git fetch C:\Users\45126\up.bundle main
+git merge --ff-only FETCH_HEAD
+```
+
+`merge --ff-only` 失败 = 两边历史分叉了，**停下来查**，不要 merge 也不要 reset。
+
+**③ 服务器构建**
+
+```bat
+cd /d C:\Users\45126\WorkBuddy\2026-10-31-07-00-13\frontend
+set PATH=C:\Users\45126\.workbuddy\binaries\node\versions\22.22.2-6;%PATH%
+npm run build
+```
+
+记下新产物哈希（`dist/assets/index-*.js` 的文件名）。
+
+**④ 重启后端**（`.py` 改动必须重启才生效）
+
+```bat
+netstat -ano | findstr :25562        :: 拿到 PID
+taskkill /PID <pid> /F
+schtasks /run /tn YijingGomokuBackend
+```
+
+**⑤ 验证**
+
+- 首页 HTTP 200，引用的 `index-*.js` / `index-*.css` 也 200
+- 产物哈希与第 ③ 步一致（不一致说明有缓存或没换 dist）
+- 进程启动时间晚于 `.py` 的 mtime（否则没加载新代码）
+- 注意：构建期间 `GET /` 可能刷出一段 404，那是旧进程留下的日志，新进程起来后正常
+
+**⑥ 推 GitHub**（本地直连）
+
+```bash
+https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 \
+  env -u HTTPS_PROXY -u HTTP_PROXY git push origin main
+```
+
+浏览器端验收可本地跑 `frontend/uitest/*.cjs`（Playwright + Edge，连线上），
+需要 `NODE_PATH=C:/Users/45126/_pwtest/node_modules`（**必须 Windows 风格路径**），
+连线上要先开 SSH 隧道 `-L 25562:127.0.0.1:25562`。
 
 ---
 
 ## 7. GitHub 同步
 
-服务器推不了，流程固定为「本地搬运」：
+远端只有一个权威分支 `main`，但提交来源有两个，走两条路。
+
+**A · 本地当班（主路径）** —— 本地直接推，命令见第 6 节 ⑥。服务器那边不需要做任何远端操作。
+
+**B · 服务器侧当班** —— 服务器推不了 GitHub，必须由本地搬运：
 
 ```bash
-# 服务器上（用全路径 git）
-git bundle create <某个路径>/wb.bundle <已知公共提交>..main
+# 服务器（git 全路径）
+git bundle create C:\Users\45126\wb.bundle <双方公共提交>..main
 
 # 本机
-scp 下来 → git fetch <bundle> main:refs/remotes/srv/main
+rscp.sh yijing:C:/Users/45126/wb.bundle ./rt.bundle
+cd gomoku-work
+git fetch ./rt.bundle main:refs/remotes/srv/main
+git log --oneline --stat HEAD..srv/main      # 先看清里面是什么
 git push origin srv/main:main
 git merge --ff-only srv/main
 ```
 
-- 推 GitHub 时带代理：`https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 git ...`
-- 搬运前先看 bundle 的 `--stat`，确认里面是什么、有没有误带运行时产物。
+- 搬运前先看 `--stat`，确认没有误带 `dist/` 或 `data/`。
+- 推 GitHub 一律带代理，否则报 `502` / 超时（见第 1 节）。
+
+**GitHub 是唯一异地备份。** 服务器那块硬盘是唯一的可运行副本，别让它落后远端太多——
+服务器侧连续提交几次而没人搬运，等于把工作压在单盘上。
 
 ---
 
@@ -161,3 +247,5 @@ git merge --ff-only srv/main
 ## 9. 改动记录
 
 - 2026-11-05 建立本文件。背景：多会话并发改同一批前端文件，发生一次未提交工作被工作区操作打断的事故。
+- 2026-11-05 修订分工：两个会话**都可以**改代码，同一时刻只一个当班，换班由用户指定。
+  默认当班方为本地会话（服务器侧 AI 额度受限）；补充交接协议与「本地改码 → 服务器构建」链路。
