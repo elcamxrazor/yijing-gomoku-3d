@@ -50,6 +50,7 @@ npm test
 - 中文前缀：`feat:` `fix:` `test:` `docs:` `refactor:` `chore:`，一个 commit 做一件事
 - **不要提交** `frontend/dist/`、`backend/data/*.db`、`backend/_restart.log`
 - 提交后直接 `git push origin main`（origin 已配好凭证，服务器和本机都能推）
+- **推失败的两种情况先换通道，别急着怀疑凭证**：直连不通就加 `https_proxy=http://127.0.0.1:7897`，代理不通就去掉代理；两边都试过还报 `Authentication failed` 才是真凭证问题
 - 提交前确认 `git status` 干净，别把半成品和别人未提交的改动一起打进构建
 
 ## 坑
