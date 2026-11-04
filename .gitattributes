@@ -1,0 +1,5 @@
+# 服务器与本机 core.autocrlf=true，会把 shell 钩子转成 CRLF，sh 执行时会报 \r 错误。
+# 钩子与 .sh 一律 LF；.cmd 交给 Windows 用 CRLF。
+*.sh          text eol=lf
+tools/hooks/* text eol=lf
+*.cmd         text eol=crlf
