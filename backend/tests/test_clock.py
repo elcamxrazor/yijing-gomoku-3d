@@ -375,3 +375,84 @@ def test_recovery_keeps_the_remaining_time_when_still_running(settings):
 
     snapshot = games.snapshot("game-clock", alice_id)
     assert 19_000 < snapshot["clock"]["remainingMs"] <= 20_000
+
+
+# ----------------------------------------------------------------------
+# 协议层：读秒必须能从客户端报文一路走到对局
+# ----------------------------------------------------------------------
+
+
+def test_room_create_accepts_time_control_over_the_wire(app):
+    """`room.create` 带的 timeControl 要真的落到这一局的快照里。
+
+    上面的用例都直接调服务方法，绕过了 `websocket.dispatch`；这条专门盯
+    「客户端字段名拼错了 / 忘了往下传」这类只在协议层才暴露的问题。
+    """
+    with TestClient(app) as alice_client:
+        register(alice_client, "alice")
+        with alice_client.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            ws.send_json({
+                "type": "room.create", "requestId": "room-clock",
+                "payload": {"timeControl": {"mode": "perMove", "perMoveMs": 60_000}},
+            })
+            snapshot = receive_request(ws, "room-clock")["payload"]
+            assert snapshot["timeControl"] == {"mode": "perMove", "perMoveMs": 60_000}
+            # 还在等人，没有对手也没有表。
+            assert snapshot["status"] == "waiting"
+            assert snapshot["clock"] is None
+
+
+def test_room_create_without_time_control_defaults_to_untimed(app):
+    """老客户端不带这个字段：必须还是不读秒，不能因为新字段报错。"""
+    with TestClient(app) as alice_client:
+        register(alice_client, "alice")
+        with alice_client.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "room.create", "requestId": "room-plain", "payload": {}})
+            snapshot = receive_request(ws, "room-plain")["payload"]
+            assert snapshot["timeControl"] == {"mode": "none", "perMoveMs": None}
+            assert snapshot["clock"] is None
+
+
+def test_invalid_time_control_is_rejected_over_the_wire(app):
+    """白名单只在服务端判：客户端送 1 秒要被当场拒掉，而不是建出一盘 1 秒的棋。"""
+    with TestClient(app) as alice_client:
+        register(alice_client, "alice")
+        with alice_client.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            ws.send_json({
+                "type": "room.create", "requestId": "room-bad",
+                "payload": {"timeControl": {"mode": "perMove", "perMoveMs": 1_000}},
+            })
+            response = receive_request(ws, "room-bad")
+            assert response["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_challenge_carries_time_control_to_the_accepted_game(app):
+    """约战条件：发起方定，被约方在弹窗里就能看到，接受即沿用。"""
+    with TestClient(app) as alice_client, TestClient(app) as bob_client:
+        register(alice_client, "alice")
+        bob = register(bob_client, "bob")
+        with alice_client.websocket_connect("/ws") as alice_ws, bob_client.websocket_connect("/ws") as bob_ws:
+            alice_ws.receive_json()
+            bob_ws.receive_json()
+
+            alice_ws.send_json({
+                "type": "challenge.create", "requestId": "ch-clock",
+                "payload": {"targetId": bob["id"], "timeControl": {"mode": "perMove", "perMoveMs": 30_000}},
+            })
+            receive_request(alice_ws, "ch-clock")
+            invite = receive_until(bob_ws, lambda message: message["type"] == "challenge.incoming")["payload"]
+            assert invite["timeControl"] == {"mode": "perMove", "perMoveMs": 30_000}
+
+            bob_ws.send_json({
+                "type": "challenge.respond", "requestId": "resp",
+                "payload": {"challengeId": invite["challengeId"], "accept": True},
+            })
+            game = receive_until(bob_ws, lambda message: message["type"] == "game.snapshot")["payload"]
+            assert game["timeControl"] == {"mode": "perMove", "perMoveMs": 30_000}
+            # 发起方收到的是**同一盘**棋，条件当然也一样。
+            accepted = receive_until(alice_ws, lambda message: message["type"] == "game.snapshot")["payload"]
+            assert accepted["id"] == game["id"]
+            assert accepted["timeControl"] == game["timeControl"]
