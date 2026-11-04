@@ -101,11 +101,14 @@
 
 ### 复盘
 
-- 已结束的 AI / 联机对局留在服务器，可按「全部 / 与好友 / 与 AI」分类查看。
+- 已结束的 AI / 联机对局留在服务器，可按「全部 / 已收藏 / 与好友 / 与 AI」分类查看。
 - 播放条支持首手 / 上一手 / 播放 / 下一手 / 终局与进度条，标注日期时间与结果，按 Esc 退出。
 - 结算卡上可直接「复盘本局」；复盘复用同一套棋盘渲染，落子动画、最后一手标记、
   五连高亮都与实战一致。
 - 复盘页的「AI评估」在浏览器本地计算，结果按手缓存，翻回来即时重现。
+- **收藏**：播放条上的星标可把一局棋谱收藏下来（列表里每行也有星标可切换），
+  收藏的棋局**永久保留**；取消收藏需二次确认，取消后回到 30 天滚动清理的范围
+  （不会立刻删除，真正的删除仍由清理任务按时间判断）。
 - **一键续弈**：拖到任意一手点「续弈」，把当前局面当残局起点开一局人机继续下。
   执子方当场选（计算机执黑 / 执白），棋境与规则跟着棋谱走。前 N 手记作
   `startPly`——重开回到这里而不是空盘，悔棋也退不过这一线。
@@ -496,9 +499,10 @@ frontend/src/scene/
 | `GET`/`PUT` | `/api/users/me/preferences` | 服务器端偏好（编号等设置的跨设备同步） |
 | `POST` | `/api/shop/purchase` | 用积分购买商品 `{item_id}` |
 | `POST` | `/api/shop/equip` | 装备材质 `{material_black, material_white}` |
-| `GET` | `/api/games/replays?limit&offset&mode=ai\|online` | 我参与过的已结束棋局 |
+| `GET` | `/api/games/replays?limit&offset&mode=ai\|online&favorite` | 我参与过的已结束棋局（`favorite=true` 只看收藏） |
 | `GET` | `/api/games/replays/{gameId}` | 单局棋谱（摘要 + 着法序列） |
-| `POST` | `/api/games/replays/{gameId}/keep` | 永久保存某盘复盘 |
+| `POST` | `/api/games/replays/{gameId}/keep` | 收藏某盘复盘（永久保留） |
+| `DELETE` | `/api/games/replays/{gameId}/keep` | 取消收藏（回到 30 天滚动清理） |
 | `GET` | `/api/radio` | 电排期 + 曲库 |
 | `GET` | `/api/radio/state` | 当前曲目与位置（客户端校准用） |
 | `GET` | `/api/radio/{id}` | 音频字节流，支持 `Range`（206） |
