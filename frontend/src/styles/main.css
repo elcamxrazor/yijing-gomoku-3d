@@ -169,16 +169,32 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 }
 .eyebrow { margin: 0; font-size: 8px; font-weight: 700; letter-spacing: .26em; color: #949c92; text-transform: uppercase; }
 .narration-line { display: flex; align-items: center; gap: 14px; pointer-events: auto; }
+/* 原先是「深绿字 + 白色发光阴影」：深色桌面上白阴影把字糊成一团，
+   茶室的白色障子窗前又和背景融掉。改成亮字 + 自适应底托，明暗背景都读得清；
+   底色随棋境切换（见下方 html[data-scene] 规则）。 */
 .narration h1 {
   margin: 0; font-family: "Songti SC", SimSun, serif; font-weight: 500;
   font-size: clamp(14px, 1.35vw, 18px); letter-spacing: .12em; line-height: 1.35;
-  color: #35423a;
-  text-shadow: 0 1px 12px rgba(252, 249, 241, .95), 0 1px 3px rgba(252, 249, 241, .8);
+  color: #f7f4ec;
+  padding: 5px 17px 6px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(20, 25, 22, .66);
+  backdrop-filter: blur(8px);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
 }
 .narration .eyebrow {
-  color: rgba(60, 74, 63, .55);
-  text-shadow: 0 1px 8px rgba(252, 249, 241, .95);
+  color: rgba(243, 240, 231, .78);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, .6);
 }
+/* 浅景白墙 / 障子窗 / 砂地：底再压深一档，边缘才不会和背景连成一片。 */
+html[data-scene="tea"] .narration h1,
+html[data-scene="courtyard"] .narration h1,
+html[data-scene="living"] .narration h1 { background: rgba(18, 23, 20, .76); }
+html[data-scene="cyber"] .narration h1 {
+  background: rgba(9, 15, 32, .76);
+  border-color: rgba(60, 230, 221, .3);
+}
+html[data-scene="studio"] .narration h1 { background: rgba(16, 17, 20, .76); }
 .turn-badge {
   display: flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px;
   border: 1px solid var(--glass-border); background: var(--glass);
@@ -1180,3 +1196,24 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+
+/* ------------------------------------------------------------------ */
+/* 开局推镜：5.4 秒环境镜头期间让 HUD 与遮罩残影让位                  */
+/* ------------------------------------------------------------------ */
+/* 过渡只加在「对局中」：首页 HUD 的显隐刻意是瞬时的（见文件首注释）。 */
+#app.is-playing .narration,
+#app.is-playing .match,
+#app.is-playing .hud-bottom,
+#app.is-playing .board-tip,
+#app.is-playing .toast-region { transition: opacity .4s ease; }
+
+html.intro-running .narration,
+html.intro-running .match,
+html.intro-running .hud-bottom,
+html.intro-running .board-tip,
+html.intro-running .toast-region { opacity: 0; pointer-events: none; }
+
+/* 开局弹窗 close() 带 0.2s 的 display/opacity 淡出，个别场景会和推镜重叠，
+   在画面里留下一层半透明表单。推镜期间直接压掉这段残影。 */
+html.intro-running #game-dialog,
+html.intro-running #game-dialog::backdrop { opacity: 0; }

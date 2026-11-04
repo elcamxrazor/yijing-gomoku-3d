@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../config';
-import { loadModel, loadPbrTextureSet, prepareModel, fitModel } from '../assets';
+import { loadModel, loadPbrTextureSet, prepareModel } from '../assets';
 import type { IntroDescriptor } from './Environment';
 import { Environment, TABLE_LEG_HEIGHT, TABLE_THICKNESS, TABLE_TOP_Y } from './Environment';
 import { makeScrollTexture, makeShojiTexture } from './textures';
@@ -450,20 +450,16 @@ export class TeaRoomEnvironment extends Environment {
    * 扫描件的陶土釉色与手工形变是茶具该有的样子。
    */
   private buildTeaSet(): void {
-    void this.applyTeaSetModel();
-  }
-
-  private async applyTeaSetModel(): Promise<void> {
-    const model = await loadModel('tea_set_01');
-    if (!model) return;
-    prepareModel(model, 8);
-    // 整套器物按 ~9 单位的最大水平边缩到桌面一角，底面贴桌面。
-    fitModel(model, { footprint: 9, rotationY: -0.5, groundY: this.tableSurfaceY });
-    // 桌子从 36 收到 30（半宽 15）之后，茶具原先的 (13, -12.5) 会让边缘探出桌沿，
-    // 顺手往内挪一档，仍然摆在棋盘右后方的空位上。
-    model.position.x += 10.5;
-    model.position.z += -10;
-    this.root.add(model);
+    // 直接复用 Poly Haven 扫描茶具，走基类的防穿模摆放。
+    // 旧写法是手工 fitModel + 平移：footprint 9、中心 x=10.5，左缘探到 6，
+    // 正好压在棋盘右缘（半宽 7.3）上；现在由 AABB 校验自动缩到不打架为止。
+    this.placeTableProp({
+      id: 'tea_set_01',
+      x: 10.6,
+      z: -6.0,
+      footprint: 5.6,
+      rotationY: -0.5,
+    });
   }
 
   private async applyPlant(): Promise<void> {

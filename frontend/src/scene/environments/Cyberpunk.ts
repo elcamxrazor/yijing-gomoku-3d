@@ -125,6 +125,15 @@ export class CyberpunkEnvironment extends Environment {
 
     this.zabuton(-21, 4, FLOOR_Y, '#1d2b3a', 0.05);
     this.zabuton(21, 4, FLOOR_Y, '#33203a', -0.09);
+    // 桌面右后角放一台真实扫描的复古游戏主机：赛博夜局的「电子设备」
+    // 用实物而不是几块发光矩形来表达。
+    this.placeTableProp({
+      id: 'gaming_console',
+      x: 10.6,
+      z: -6.0,
+      footprint: 5.0,
+      rotationY: -0.35,
+    });
   }
 
   /**

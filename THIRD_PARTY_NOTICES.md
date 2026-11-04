@@ -64,11 +64,16 @@ Rapfi 以 **GNU GPL v3** 授权：本项目保留其版权与许可声明。构�
 | [Boulder 01](https://polyhaven.com/a/boulder_01) | 庭院石组（扫描模型） | `public/models/boulder_01/` |
 | [Jacaranda Tree](https://polyhaven.com/a/jacaranda_tree) | 庭松（调绿）/ 红枫（调红）/ 赛博樱（调粉发光）共用骨架 | `public/models/jacaranda_tree/` |
 | [Potted Plant 02](https://polyhaven.com/a/potted_plant_02) | 茶室盆栽 | `public/models/potted_plant_02/` |
+| [Book Encyclopedia Set 01](https://polyhaven.com/a/book_encyclopedia_set_01) | 客厅茶几书刊 | `public/models/book_set/` |
+| [Postcard Set 01](https://polyhaven.com/a/postcard_set_01) | 影棚台面明信片 | `public/models/postcard_set/` |
+| [Camera 01](https://polyhaven.com/a/camera_01) | 影棚台面相机 | `public/models/camera_01/` |
+| [Gaming Console](https://polyhaven.com/a/gaming_console) | 赛博桌面游戏主机 | `public/models/gaming_console/` |
+| [Projector Screen](https://polyhaven.com/a/projector_screen) | 影棚背景板 / 反光板（运行时换成纯色材质） | `public/models/projector_screen/` |
 
 其余视觉资产（障子纸、霓虹招牌、花瓣、挂轴、图标、纯色兜底材质）
 全部由 Canvas 2D 在运行时程序化生成，或直接使用基础几何体，不依赖任何外部文件。
 
-素材总体积约 **42 MB**（HDRI 6.1 MB + 贴图 18 MB + 模型 18 MB）。
+素材总体积约 **61 MB**（HDRI 6.1 MB + 贴图 17 MB + 模型 38 MB；另有 13 MB 的本地 AI 引擎 wasm/data 不计入素材）。
 其中扫描树木/岩石模型原始体积高达 214 MB ~ 958 MB（几百万面的摄影测量网格），
 经 [gltf-transform](https://gltf-transform.dev) 做 meshopt 简化 + 纹理缩到 512 + 量化压缩后
 降到 0.3 ~ 12 MB 不等；法线/粗糙度贴图用 JPEG quality 90 避免色带。

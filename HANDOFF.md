@@ -818,6 +818,40 @@ AI 对局沿用传统模式（人类执自选颜色、黑先），本地对战�
 - **验证**：`frontend/uitest/public_profile_check.cjs`（两游客进大厅，A 点 B 昵称 → 断言
   卡片 `open`、含「积分」格且数值为 10000、`.profile-stat` 恰 6 格）实测 `VERDICT: PASS`。
 
+### 3.23 批次十四：棋境陈设改用真实模型 + 防穿模（2026-11-04）
+
+**用户约束**：场景里优先复用现有模型或上网找 CC0 素材，**不要自己建模**（程序化
+几何既不好看又费算力），且布置**不能穿模**。默认相机倾角一个字未动（落子精度优先）。
+
+- **撤销**：上一版 P0 里用基础几何手搓的 `buildSignature` 五套道具（茶盏 / 耙纹石组 /
+  发光铭牌 / 杯垫杂志 / 扇形色卡）、桌沿 `buildEdge`、坐垫配件、铜铃托盘，以及影棚
+  `buildSoftboxes` 的两块发光面。`Environment.ts` 直接从备份还原后只追加新能力。
+- **基类新增 `placeTableProp()`**（`Environment.ts`）：
+  - 模块级 `propPrototypes` 缓存已解析 GLB，摆放只 `clone(true)` 共享几何/材质，
+    切棋境不再重复 fetch + GLTFLoader.parse；
+  - `disposed` 标志 + 异步守卫，切场景后迟到资源直接丢弃（顺手补上旧泄漏路径）；
+  - `propQueue` 串行化同环境摆放，否则并发 AABB 检查会互相看不见对方；
+  - **AABB 防穿模**：棋盘柱体、铜铃占位、桌沿边界、已摆陈设四项互斥，放不下就
+    按 `1 → .86 → .72 → .6 → .48` 缩档 + 三个让位点重试，仍不行就跳过并告警；
+  - `height` 按高度缩放（落地器材用）、`flatColor` 纯色替换贴图（斑驳幕布变背景板）、
+    `groundY` / `tableHalf` 适配不同台面（客厅 GLB 茶几是 x±25.8 / z±11.4、y=-0.31）。
+  - `?debugprops=1` 只读读数钩子：把每件陈设的世界 AABB 暴露给回归脚本做数值断言。
+- **五景陈设**（全部真实扫描模型，零自建几何）：茶室 `tea_set_01`（原手工摆放左缘
+  探到 x=6、正压棋盘右缘，改由校验自动缩到 0.86）；庭院 `rock_09` + `stone_01`；
+  赛博 `gaming_console`；客厅 `book_set`；影棚 `camera_01` + `postcard_set` +
+  桌后 `projector_screen`（纯色当背景板）。四盏 `RectAreaLight` 仍只作光源留在画外。
+- **新下载 CC0**：`book_set` / `postcard_set` / `camera_01` / `gaming_console` /
+  `projector_screen`（`tools/fetch_polyhaven.py`，贴图压到 512px，合计约 6 MB）。
+  `decorative_book_set_01` 无 glTF 格式，改用 `book_encyclopedia_set_01`；
+  `portable_searchlight` / `security_light` / `desk_lamp_arm_01` 实拍后语义不符，已删除。
+- **可见区实测**：默认正俯视画面约 x±17 / z±10.6，z 方向像素密度比 x 高 1.27 倍；
+  道具中心放 **z≈-6** 才连边缘一起留在画面内，`z<-8` 会被上缘裁掉——
+  「没穿模」不等于「看得见」，摆位得同时满足两者。
+- **验证**：`tsc -b` / `vite build` / 114 前端单测全绿；`uitest/out/_verify_props.cjs`
+  真实浏览器五棋境连跑：8 件陈设全部摆下，AABB 断言「不压棋盘 / 不碰铜铃 /
+  不探桌沿 / 彼此不重叠」零违规，落子正常（各 1 手），零 pageerror / 零跳过告警 →
+  **VERDICT: PASS**。P1 三项（开场 HUD 让位、叙事行对比度、客厅/影棚机位）保留。
+
 ## 4. 素材来源与授权
 
 **全部来自 [Poly Haven](https://polyhaven.com)，CC0 授权（可商用、可修改、无需署名）**。
@@ -843,6 +877,7 @@ AI 对局沿用传统模式（人类执自选颜色、黑先），本地对战�
 | 石组（扫描） | Coast Rocks 01 / Boulder 01 | `public/models/coast_rocks_01/`、`public/models/boulder_01/` |
 | 庭松/红枫/赛博樱骨架 | Jacaranda Tree | `public/models/jacaranda_tree/` |
 | 盆栽（扫描） | Potted Plant 02 | `public/models/potted_plant_02/` |
+| 棋境桌面陈设（扫描） | Book Set / Postcard Set / Camera 01 / Gaming Console / Projector Screen | `public/models/{book_set,postcard_set,camera_01,gaming_console,projector_screen}/` |
 | 石灯笼（扫描） | Wooden Lantern 01 | `public/models/wooden_lantern_01/` |
 | 现代客厅（用户提供） | 「CG美术之家」家庭室内套件（**非 CC0，商用授权待用户自行确认**） | `public/models/living_room/` |
 
