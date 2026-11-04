@@ -71,6 +71,8 @@ export class GomokuScene {
     this.board = new BoardManager(this.sceneManager, { reducedMotion: options.reducedMotion });
     this.bell = new Bell(this.sceneManager.tweens, this.sceneManager.scene);
     this.sceneManager.onFrame((now) => this.bell.update(now));
+    // 叙事行要按棋境明暗换底衬色，CSS 从这里读当前场景。
+    document.documentElement.dataset.scene = DEFAULT_SCENE_ID;
     this.bindEvents();
   }
 
@@ -100,6 +102,7 @@ export class GomokuScene {
     this.sceneId = id;
     this.environment = GomokuScene.createEnvironment(id, this.sceneManager.scene);
     this.sceneManager.applyEnvironment(this.environment);
+    document.documentElement.dataset.scene = id;
     // 铃铛和棋盘不在环境的节点树下，不会被带了去；但换环境等于加减了一大批
     // 投影体，静止时阴影贴图是不更新的，必须点这一下让桌面重画影子。
     this.sceneManager.invalidateShadows();

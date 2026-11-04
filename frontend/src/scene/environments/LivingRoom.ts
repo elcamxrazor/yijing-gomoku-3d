@@ -52,12 +52,18 @@ export class LivingRoomEnvironment extends Environment {
    */
   override readonly maxDistance = 110;
   /**
-   * 推镜从沙发上空起步：茶几在窗边、沙发与电视墙在进深深处（实测布局），
-   * 镜头沿着「沙发 → 茶几」的动线推进，先看见整条客厅，再落到棋盘上。
+   * 推镜从沙发上空起步，沿着「沙发 → 茶几」的动线推进。
+   *
+   * 沙发主体实测在 z≈178~209（棋盘 +z 方向约 6 米），原先机位 [24,66,232]
+   * 俯角只有 17°，沙发被压在画面下缘之外，整段开场只看到白墙、挂画与茶几，
+   * 白费了 17.9MB 的户型。这里把机位抬高、拉远并把注视点挪到沙发与茶几
+   * 之间（z≈96），俯角约 26°，沙发、单椅、茶几同框，推近时再依次退出画面。
+   * 默认对局机位仍是正俯拍，一个单位都没动。
    */
   override readonly intro: IntroDescriptor = {
-    position: [24, 66, 232],
-    target: [0, 6, 42],
+    position: [12, 88, 258],
+    target: [0, 10, 96],
+    fov: 68,
     duration: 5600,
   };
 
@@ -66,6 +72,17 @@ export class LivingRoomEnvironment extends Environment {
 
     this.createLights();
     this.buildFallbackShell();
+    // 客厅用的是 GLB 里那张 x±25.8 / z±11.4 的长茶几，台面 y=-0.31，
+    // 和通用 30×30 桌子不同；显式传边界，书刊才不会探出桌沿或压到棋盘。
+    this.placeTableProp({
+      id: 'book_set',
+      x: 11.2,
+      z: -6.0,
+      footprint: 5.8,
+      rotationY: 0.25,
+      groundY: -0.31,
+      tableHalf: [25.79, 11.44],
+    });
     void this.buildRoom();
   }
 

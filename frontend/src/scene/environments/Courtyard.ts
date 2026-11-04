@@ -82,6 +82,10 @@ export class CourtyardEnvironment extends Environment {
     void this.applyTableTexture();
     this.zabuton(-21, 4, DECK_Y, '#4a5a53', 0.06);
     this.zabuton(21, 4, DECK_Y, '#8d5a3c', -0.1);
+    // 桌面右侧摆一组真实扫描景石：把庭院的枯山水带进默认取景，
+    // 而不是再画几个同心圆。两块一上一下分开站，避免互穿，也都留在画面里。
+    this.placeTableProp({ id: 'rock_09', x: 10.6, z: -6.2, footprint: 4.2, rotationY: 0.6 });
+    this.placeTableProp({ id: 'stone_01', x: 11.2, z: 1.8, footprint: 2.6, rotationY: -0.8 });
   }
 
   private readonly deckMaterial: THREE.MeshStandardMaterial;

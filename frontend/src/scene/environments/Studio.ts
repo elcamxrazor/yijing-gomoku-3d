@@ -20,8 +20,10 @@ import { Environment, TABLE_LEG_HEIGHT, TABLE_THICKNESS, TABLE_TOP_Y } from './E
  *   的注释），所以另配一盏与主光**同方向**的平行光专门投影子，棋子才会「压」
  *   在棋盘上，而不是浮着。
  *
- * 素材全部复用：桌子走 `Environment.buildTable`，桌面用已有的 `darkwood` PBR，
- * 天光沿用已有的 `studio_kominka_01_1k.hdr`。没有新模型、没有新贴图。
+ * 素材：桌子走 `Environment.buildTable`，桌面用已有的 `darkwood` PBR，
+ * 天光沿用 `studio_kominka_01_1k.hdr`；台面相机、明信片与桌后的背景板
+ * 都是 Poly Haven 的 CC0 扫描模型（见 `THIRD_PARTY_NOTICES.md`），不再手搓几何。
+ * 四盏柔光箱依旧只是光源、留在画外——真实棚拍里灯本来也不一定入镜。
  */
 
 /** 影棚地面高度：和其它环境一样，桌子腿落在这条线上。 */
@@ -49,13 +51,17 @@ export class StudioEnvironment extends Environment {
   override readonly maxDistance = 64;
 
   /**
-   * 推镜从侧后上方慢慢压进来：先看见弧形背景与光池，再落到棋盘上——
+   * 推镜从房间后方压进来：先看见两侧柔光箱与弧形背景，再落到棋盘上——
    * 像摄影棚里把灯调好、把机位推到位的过程。
+   *
+   * 原先 [52,40,58] + fov 50 只框得住桌面，灯箱与无缝背景全在画外，
+   * 「摄影棚」看起来就是一块灰底加一张木桌。改到正后方、放宽到 62°，
+   * 起点那一帧才交代得出这是个棚。默认对局机位仍是正俯拍，未改动。
    */
   override readonly intro: IntroDescriptor = {
-    position: [52, 40, 58],
-    target: [0, 3, 0],
-    fov: 50,
+    position: [0, 34, 116],
+    target: [0, 14, 4],
+    fov: 62,
     duration: 5200,
   };
 
@@ -73,6 +79,18 @@ export class StudioEnvironment extends Environment {
     this.createLights();
     this.buildCyclorama();
 
+    // 桌后立一块真实扫描的投影幕布，当影棚的背景板 / 反光板。
+    // 四盏 RectAreaLight 仍只是光源（真实影棚里灯也常在画外），但至少开场
+    // 推镜能看见一件明确的棚拍器材，而不是一整片空灰。
+    // 放在 z=-36、桌后半宽之外，AABB 校验会保证不与桌子 / 棋盘穿模。
+    const studioHalf: [number, number] = [STUDIO_RADIUS - COVE_RADIUS, STUDIO_RADIUS - COVE_RADIUS];
+    this.placeTableProp({
+      id: 'projector_screen',
+      x: 0, z: -36, footprint: 16, height: 20, rotationY: 0,
+      groundY: FLOOR_Y, tableHalf: studioHalf, maxHeight: 24,
+      flatColor: '#d6d8d6',
+    });
+
     // 桌子照旧顶在 TABLE_TOP_Y：棋盘、铜铃一单位都不用挪。
     // 桌面用暗胡桃木，把浅色榧木棋盘衬出来（真实棋具产品照也常这么做）。
     this.tableTopMaterial = this.buildTable({
@@ -85,6 +103,18 @@ export class StudioEnvironment extends Environment {
       legHeight: TABLE_LEG_HEIGHT,
     });
     void this.applyTableTexture();
+
+    // 台面右后角：一部扫描相机 + 一叠明信片，替代原先手搓的「扇形色卡」。
+    // 桌子只有 26 见方（半宽 13），显式传边界才不会探出桌沿。
+    const tableHalf: [number, number] = [13, 13];
+    this.placeTableProp({
+      id: 'camera_01', x: 10.0, z: -6.2, footprint: 3.8, rotationY: -0.4,
+      tableHalf,
+    });
+    this.placeTableProp({
+      id: 'postcard_set', x: 10.2, z: -1.6, footprint: 2.8, rotationY: 0.35,
+      tableHalf,
+    });
   }
 
   // ------------------------------------------------------------------

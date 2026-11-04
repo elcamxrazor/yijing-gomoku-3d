@@ -7,6 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import type { Environment, IntroDescriptor } from './environments/Environment';
 import { loadHdri } from './assets';
 import { Easing, TweenManager } from './animation/tween';
+import { beginIntro, endIntro } from '../ui/introGate';
 import {
   BOARD_SURFACE_Y,
   BOARD_WIDTH,
@@ -399,6 +400,9 @@ export class SceneManager {
       return;
     }
 
+    // 这 5.4 秒把 HUD 与开场 toast 全部让位，环境镜头才干净（见 ui/introGate.ts）。
+    beginIntro(duration);
+
     // 直接切到远景再推进。切的那一帧正好被首页遮罩的淡出盖住，
     // 比「先拉远再推进」少一次多余的运动，动线更干净。
     this.camera.position.copy(startPosition);
@@ -424,6 +428,7 @@ export class SceneManager {
         this.userAdjusted = false;
         this.controls.enabled = true;
         this.applyFraming(endDirection);
+        endIntro();
       },
     });
   }
@@ -589,6 +594,7 @@ export class SceneManager {
 
   dispose(): void {
     this.disposed = true;
+    endIntro(); // 推镜被销毁打断时别把 HUD 永久藏起来
     this.stop();
     this.resizeObserver.disconnect();
     this.controls.removeEventListener('start', this.onControlStart);

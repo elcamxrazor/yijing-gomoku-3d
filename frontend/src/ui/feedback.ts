@@ -1,4 +1,5 @@
 import { icon } from './icons';
+import { gateToast } from './introGate';
 
 export function required<T extends HTMLElement = HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -26,6 +27,10 @@ function scheduleToastDismiss(element: HTMLElement, type: 'info' | 'error'): voi
  * toast 会向上堆成一堵墙把棋盘挡住。
  */
 export function toast(message: string, type: 'info' | 'error' = 'info', key?: string): void {
+  gateToast(() => renderToast(message, type, key), type === 'error', key);
+}
+
+function renderToast(message: string, type: 'info' | 'error', key?: string): void {
   const region = required('toast-region');
   const selector = key ? `[data-toast-key="${key}"]` : null;
   let element = selector ? region.querySelector<HTMLElement>(selector) : null;

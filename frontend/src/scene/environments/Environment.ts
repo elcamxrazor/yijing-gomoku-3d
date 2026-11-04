@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { BOARD_THICKNESS, TABLE_SURFACE_Y } from '../config';
+import { BOARD_SURFACE_Y, BOARD_THICKNESS, BOARD_WIDTH, TABLE_SURFACE_Y } from '../config';
 import { fitModel, loadModel, prepareModel } from '../assets';
 import type { ScenePresetId } from '../../game/scenes';
 
@@ -45,6 +45,49 @@ export const TABLE_THICKNESS = 0.55;
 /** 桌腿默认高度：决定坐姿棋盘离地多少。 */
 export const TABLE_LEG_HEIGHT = 12.4;
 
+/**
+ * 已解析的扫描模型原型，**全进程缓存**。
+ *
+ * 切棋境是常态，同一个 GLB 反复 fetch + GLTFLoader.parse 会白烧主线程；
+ * 这里缓存解析后的 Object3D，每次摆放只 `clone(true)`——几何体与材质共享，
+ * 多摆几件的显存成本接近零。原型本身不挂进任何 scene，`dispose()` 也不碰它。
+ */
+const propPrototypes = new Map<string, Promise<THREE.Object3D | null>>();
+
+function propPrototype(id: string): Promise<THREE.Object3D | null> {
+  let pending = propPrototypes.get(id);
+  if (!pending) {
+    pending = loadModel(id).then((model) => {
+      if (model) prepareModel(model, 8);
+      return model;
+    });
+    propPrototypes.set(id, pending);
+  }
+  return pending;
+}
+
+/** 一件桌面陈设的摆位参数。 */
+export interface PropOptions {
+  /** 模型 id，对应 `public/models/<id>/<id>_1k.glb`。 */
+  id: string;
+  /** 目标位置（世界坐标，棋盘中心是原点）。 */
+  x: number;
+  z: number;
+  /** 目标最长水平边；放不下时会自动按档缩小。 */
+  footprint: number;
+  /** 目标高度；给了就优先按高度缩放（落地灯具用，否则会矮得看不见）。 */
+  height?: number;
+  rotationY?: number;
+  /** 台面高度，默认 `TABLE_SURFACE_Y`。客厅 GLB 茶几要传 -0.31。 */
+  groundY?: number;
+  /** 本场景桌面的可用半宽 / 半深，默认按 `TABLE_SIZE` 算。 */
+  tableHalf?: [number, number];
+  /** 允许的最大高度，避免高物件穿出取景或盖住棋盘。 */
+  maxHeight?: number;
+  /** 用纯色材质替换模型自带贴图（把斑驳幕布变成干净的影棚背景板）。 */
+  flatColor?: string;
+}
+
 export interface TableOptions {
   /** 桌面颜色。 */
   top: string;
@@ -65,6 +108,13 @@ export interface TableOptions {
 export abstract class Environment {
   protected readonly root = new THREE.Group();
   protected readonly disposables: Array<THREE.BufferGeometry | THREE.Material | THREE.Texture> = [];
+
+  /** 切棋境后迟到返回的异步资源一律丢弃，别往已销毁的 root 上挂。 */
+  protected disposed = false;
+  /** 本环境已经摆下的陈设包围盒，供后续摆放做互斥检查。 */
+  private readonly placedProps: THREE.Box3[] = [];
+  /** 同一环境的摆放串行执行，否则并发的 AABB 检查会互相看不见对方。 */
+  private propQueue: Promise<void> = Promise.resolve();
 
   /** 挂到 scene.background 的全局底色。 */
   abstract readonly background: THREE.ColorRepresentation;
@@ -114,9 +164,11 @@ export abstract class Environment {
   onFrame(_now: number): void {}
 
   dispose(): void {
+    this.disposed = true;
     this.root.removeFromParent();
     this.disposables.forEach((item) => item.dispose());
     this.disposables.length = 0;
+    this.placedProps.length = 0;
   }
 
   // ------------------------------------------------------------------
@@ -383,5 +435,120 @@ export abstract class Environment {
   /** 桌面沿（每张桌子都贴着 TABLE_TOP_Y 这条线放顶面）。 */
   protected get tableSurfaceY(): number {
     return TABLE_SURFACE_Y;
+  }
+
+  // ------------------------------------------------------------------
+  // 桌面陈设：只用真实扫描模型，自带防穿模
+  // ------------------------------------------------------------------
+
+  /** 棋盘 + 棋子所在柱体，陈设一律不得侵入。 */
+  private static readonly BOARD_KEEPOUT = new THREE.Box3(
+    new THREE.Vector3(-BOARD_WIDTH / 2 - 0.45, TABLE_TOP_Y - 0.1, -BOARD_WIDTH / 2 - 0.45),
+    new THREE.Vector3(BOARD_WIDTH / 2 + 0.45, BOARD_SURFACE_Y + 0.9, BOARD_WIDTH / 2 + 0.45),
+  );
+
+  /** 铜铃（含悬停光环）占位，与 scene/Bell.ts 的 POSITION 对齐。 */
+  private static readonly BELL_KEEPOUT = new THREE.Box3(
+    new THREE.Vector3(-8.15 - 2.4, TABLE_TOP_Y - 0.1, 6.05 - 2.4),
+    new THREE.Vector3(-8.15 + 2.4, TABLE_TOP_Y + 3.2, 6.05 + 2.4),
+  );
+
+  /**
+   * 在桌面摆一件**真实扫描模型**。
+   *
+   * 所有摆位都过 AABB 校验：不能压棋盘 / 铜铃 / 其它陈设，不能探出桌沿，
+   * 也不能高过取景。放不下就按档缩小、往右后角让位；实在放不下宁可不摆并
+   * 告警，也绝不留下半截穿模的物件。GLB 解析结果全进程缓存，切棋境不重解。
+   *
+   * **可见区实测**（1280×800 默认正俯视）：画面约 x±17 / z±10.6，且 z 方向
+   * 的像素密度比 x 高约 1.27 倍。道具中心要放 z≈-6 才连边缘一起留在画面内；
+   * z<-8 时上缘会被裁掉——「没穿模」不等于「看得见」，摆位得同时满足两者。
+   */
+  protected placeTableProp(options: PropOptions): void {
+    this.propQueue = this.propQueue
+      .then(() => this.applyTableProp(options))
+      .catch((error) => console.warn(`[environment] 陈设 ${options.id} 摆放失败`, error));
+  }
+
+  private async applyTableProp(options: PropOptions): Promise<void> {
+    const prototype = await propPrototype(options.id);
+    // 切棋境是常态：模型晚回来时这个环境可能已经销毁，直接丢弃。
+    if (!prototype || this.disposed) return;
+
+    const half = options.tableHalf ?? [TABLE_SIZE / 2, TABLE_SIZE / 2];
+    const groundY = options.groundY ?? TABLE_SURFACE_Y;
+    const maxHeight = options.maxHeight ?? 4.2;
+    const rotationY = options.rotationY ?? 0;
+
+    // 纯色替身材质只建一次，多档缩放共用；由 disposables 随环境一起释放。
+    const plain = options.flatColor
+      ? new THREE.MeshStandardMaterial({
+          color: options.flatColor,
+          roughness: 0.92,
+          side: THREE.DoubleSide,
+        })
+      : null;
+    if (plain) this.disposables.push(plain);
+
+    // 先按指定点摆；放不下再往右后角让一点，仍留在默认取景内。
+    const spots: Array<[number, number]> = [
+      [options.x, options.z],
+      [options.x + 1.3, options.z - 0.5],
+      [options.x + 0.4, options.z - 2.0],
+    ];
+
+    for (const [x, z] of spots) {
+      for (const factor of [1, 0.86, 0.72, 0.6, 0.48]) {
+        const candidate = prototype.clone(true);
+        if (plain) {
+          candidate.traverse((node) => {
+            if (node instanceof THREE.Mesh) node.material = plain;
+          });
+        }
+        fitModel(candidate, {
+          footprint: options.footprint * factor,
+          ...(options.height ? { height: options.height * factor } : {}),
+          rotationY,
+          groundY,
+        });
+        candidate.position.x += x;
+        candidate.position.z += z;
+        candidate.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(candidate);
+        if (box.max.y - groundY > maxHeight) continue;
+        if (!this.propFits(box, half, groundY)) continue;
+
+        this.root.add(candidate);
+        // 留 0.3 的呼吸缝，避免两件陈设贴在一起视觉上像穿模。
+        this.placedProps.push(box.clone().expandByScalar(0.3));
+        // 只读调试读数：正常访问不挂载，供回归脚本用数值断言「不穿模」。
+        if (new URLSearchParams(location.search).has('debugprops')) {
+          const host = window as unknown as Record<string, unknown>;
+          const list = (host.__propBoxes ??= []) as Array<Record<string, unknown>>;
+          list.push({
+            id: options.id,
+            env: this.id,
+            factor,
+            min: box.min.toArray(),
+            max: box.max.toArray(),
+          });
+        }
+        return;
+      }
+    }
+    console.warn(
+      `[environment] 陈设 ${options.id} 在 (${options.x}, ${options.z}) 放不下，已跳过以避免穿模`,
+    );
+  }
+
+  /** AABB 互斥：桌沿、棋盘、铜铃、已摆下的其它陈设。 */
+  private propFits(box: THREE.Box3, half: [number, number], groundY: number): boolean {
+    const [halfX, halfZ] = half;
+    if (box.min.y < groundY - 0.25) return false;
+    if (box.min.x < -halfX + 0.5 || box.max.x > halfX - 0.5) return false;
+    if (box.min.z < -halfZ + 0.5 || box.max.z > halfZ - 0.5) return false;
+    if (box.intersectsBox(Environment.BOARD_KEEPOUT)) return false;
+    if (box.intersectsBox(Environment.BELL_KEEPOUT)) return false;
+    return !this.placedProps.some((placed) => box.intersectsBox(placed));
   }
 }

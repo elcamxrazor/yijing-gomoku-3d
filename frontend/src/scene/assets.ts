@@ -28,6 +28,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
  * | 岩石 | Coast Rocks / Boulder（扫描模型） | `public/models/coast_rocks_01/`、`boulder_01/` |
  * | 庭木 / 赛博植物（松/枫/樱共用骨架） | Shrub 02（扫描灌木，4 个变体） | `public/models/shrub_02/` |
  * | 绿植 | Potted Plant 02 | `public/models/potted_plant_02/` |
+ * | 棋境桌面陈设 | Book Set / Postcard Set / Camera 01 / Gaming Console / Projector Screen | `public/models/book_set/`、`postcard_set/`、`camera_01/`、`gaming_console/`、`projector_screen/` |
  *
  * 模型统一经 gltf-transform 做 meshopt 简化 + 压缩（树木从 214 MB 压到 12 MB），
  * 因此 GLTFLoader 挂了 MeshoptDecoder 才能解析。
