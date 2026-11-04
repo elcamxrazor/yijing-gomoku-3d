@@ -28,6 +28,29 @@ export function clockLabel(ms: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+/**
+ * 本机钟与服务端钟的偏差（毫秒）：`本机现在 - 服务端现在`。
+ *
+ * 服务端只发「截止时刻」和「下发那一刻的剩余」，两者相减正好是服务端眼中的
+ * 「此刻」。玩家电脑的钟快慢几分钟并不罕见，直接拿 `deadlineAt` 减本机时间，
+ * 屏幕上的秒数会整体偏掉（可能是五分钟）；扣掉这个偏差，两条时间轴才对得齐。
+ *
+ * 网络延迟会让剩余时间略微高估（约等于单程延迟），这是可接受的方向——
+ * 宁可让玩家多看到半秒，也不要提前把数字压到 0。
+ *
+ * @returns 无 `remainingMs` 时返回 0（退化为直接使用 `deadlineAt`）。
+ */
+export function clockOffset(
+  deadlineAt: number,
+  remainingMs: number | null,
+  now: number,
+): number {
+  if (!Number.isFinite(deadlineAt) || remainingMs === null || !Number.isFinite(remainingMs)) {
+    return 0;
+  }
+  return now - (deadlineAt - remainingMs);
+}
+
 /** 是否该亮警示色。 */
 export function isLowTime(ms: number): boolean {
   return ms > 0 && ms <= LOW_TIME_MS;

@@ -566,13 +566,17 @@ frontend/src/scene/
   "clock": {
     "side": "black" | "white" | null,  // 当前该谁走
     "deadlineAt": 1730000000000,       // 截止时刻（epoch 毫秒）；客户端据此本地倒计时
-    "remainingMs": 28123,              // 下发那一刻的剩余，仅作首帧兜底
+    "remainingMs": 28123,              // 下发那一刻的剩余；用来校正本机与服务端的钟差
     "paused": false                    // 对手断线时为 true：表停着，别让数字骗人
   }
 }
 ```
 
 `clock` 为 `null`（不限时 / 未开局 / 已终局）；`paused` 为 `true` 时前端把数字压暗。
+
+> `remainingMs` 不只是首帧兜底：`deadlineAt - remainingMs` 就是服务端眼中的「此刻」，
+> 客户端拿它与本机时间相减得到钟差，之后每一跳都在校正后的时间轴上重算。
+> 玩家电脑的钟快慢几分钟很常见，少了这一步，屏幕上的秒数会整体偏掉。
 
 新增终局原因 `winReason: "timeout"`（思考超时），新增错误码 `CLOCK_EXPIRED`
 （落子在截止后到达，服务端已判负并拒绝该手）。
@@ -595,7 +599,7 @@ npm test
 npm run build
 ```
 
-当前基线：后端 **117 项**、前端 **98 项**单测全部通过。
+当前基线：后端 **117 项**、前端 **102 项**单测全部通过。
 `frontend/uitest/` 下另有 Playwright 可视化回归脚本（鸿璐配色、商城、名片、提示环等）。
 
 ## Docker

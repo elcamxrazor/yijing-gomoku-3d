@@ -3,7 +3,7 @@ import { AuthClient, type ProfileStats } from './auth/AuthClient';
 import { Radio } from './audio/Radio';
 import { SoundManager } from './audio/SoundManager';
 import { LocalGameState } from './game/state';
-import { clockLabel, clockVisible, isLowTime, remainingMs, timeControlLabel } from './game/clock';
+import { clockLabel, clockOffset, clockVisible, isLowTime, remainingMs, timeControlLabel } from './game/clock';
 import { offlineOpponent } from './game/presence';
 import { coerceSceneId, sceneName } from './game/scenes';
 import type {
@@ -131,7 +131,7 @@ class YijingApp {
    * `setInterval` 节流到每秒甚至停摆，自减会一路走偏；每次从 `deadlineAt`
    * 重算则回到前台瞬间自愈。
    */
-  private clock: { deadlineAt: number; paused: boolean } | null = null;
+  private clock: { deadlineAt: number; offset: number; paused: boolean } | null = null;
   private clockTicker: number | null = null;
 
   /** 本地用户档案（积分 / 已解锁 / 已装备）。仅影响外观，存于 localStorage。 */
@@ -1571,6 +1571,8 @@ class YijingApp {
     }
     this.clock = {
       deadlineAt: clock.deadlineAt,
+      // 顺手校一次时：玩家电脑的钟差几分钟很常见，不校正的话屏幕上的秒数会整体偏掉。
+      offset: clockOffset(clock.deadlineAt, clock.remainingMs, Date.now()),
       paused: clock.paused === true,
     };
     this.startClockTicker();
@@ -1607,7 +1609,7 @@ class YijingApp {
       chip.hidden = true;
       return;
     }
-    const left = remainingMs(state.deadlineAt, Date.now());
+    const left = remainingMs(state.deadlineAt, Date.now() - state.offset);
     chip.textContent = clockLabel(left);
     chip.hidden = false;
     const low = isLowTime(left);

@@ -4,6 +4,7 @@ import {
   NO_TIME_CONTROL,
   PER_MOVE_OPTIONS,
   clockLabel,
+  clockOffset,
   clockVisible,
   isLowTime,
   remainingMs,
@@ -61,6 +62,34 @@ describe('档位文案', () => {
 
   it('档位与后端白名单一致', () => {
     expect([...PER_MOVE_OPTIONS]).toEqual([30_000, 60_000, 120_000]);
+  });
+});
+
+describe('校时', () => {
+  it('本机钟准：偏差为零，算出来的剩余与下发值一致', () => {
+    // 服务端此刻 1_000_000，剩 30 秒 → 截止 1_030_000；本机钟一样准。
+    const offset = clockOffset(1_030_000, 30_000, 1_000_000);
+    expect(offset).toBe(0);
+    expect(remainingMs(1_030_000, 1_000_000 - offset)).toBe(30_000);
+  });
+
+  it('本机钟快 5 分钟：扣掉偏差后仍显示完整的 30 秒', () => {
+    const now = 1_000_000 + 300_000; // 本机比服务端快 5 分钟
+    const offset = clockOffset(1_030_000, 30_000, now);
+    expect(offset).toBe(300_000);
+    expect(remainingMs(1_030_000, now - offset)).toBe(30_000);
+  });
+
+  it('本机钟慢 2 分钟也不会把剩余算成溢出的大数', () => {
+    const now = 1_000_000 - 120_000;
+    const offset = clockOffset(1_030_000, 30_000, now);
+    expect(offset).toBe(-120_000);
+    expect(remainingMs(1_030_000, now - offset)).toBe(30_000);
+  });
+
+  it('没有 remainingMs 时退化为不校时，而不是算出一个荒谬的偏差', () => {
+    expect(clockOffset(1_030_000, null, 1_000_000)).toBe(0);
+    expect(clockOffset(Number.NaN, 30_000, 1_000_000)).toBe(0);
   });
 });
 
