@@ -26,17 +26,31 @@ def _require_user(request: Request):
 
 
 @router.post("/replays/{game_id}/keep")
-def keep_replay(game_id: str, request: Request) -> dict:
-    """把一局棋谱标记为「永久储存」，豁免 30 天清理。
+def favorite_replay(game_id: str, request: Request) -> dict:
+    """收藏一局棋谱：收藏后永久保留，豁免 30 天清理。
 
-    只有参与者本人能标记；重复标记幂等。成功后 `keepForever` 恒为 True。
+    只有参与者本人能操作；重复收藏幂等。成功后 `favorite` 恒为 True。
     """
     user = _require_user(request)
     try:
-        kept = request.app.state.replay.keep_forever(user.id, game_id)
+        favorite = request.app.state.replay.set_favorite(user.id, game_id, True)
     except ReplayError as exc:
         raise HTTPException(404, exc.message) from exc
-    return {"gameId": game_id, "keepForever": kept}
+    return {"gameId": game_id, "favorite": favorite}
+
+
+@router.delete("/replays/{game_id}/keep")
+def unfavorite_replay(game_id: str, request: Request) -> dict:
+    """取消收藏：棋局回到 30 天滚动清理的范围内（不是立刻删除）。
+
+    真正的删除仍然由清理任务按创建时间判断，所以刚取消完还能正常复盘。
+    """
+    user = _require_user(request)
+    try:
+        favorite = request.app.state.replay.set_favorite(user.id, game_id, False)
+    except ReplayError as exc:
+        raise HTTPException(404, exc.message) from exc
+    return {"gameId": game_id, "favorite": favorite}
 
 
 @router.get("/replays")
@@ -46,9 +60,13 @@ def list_replays(
     offset: int = Query(0, ge=0),
     # `ai` = 与 AI 的对局，`online` = 与好友的对局；不给就是不分类。
     mode: str | None = Query(None, pattern="^(ai|online)$"),
+    # 只看收藏（「已收藏」页签）。
+    favorite: bool = Query(False),
 ) -> dict:
     user = _require_user(request)
-    return request.app.state.replay.list_for_user(user.id, limit=limit, offset=offset, mode=mode)
+    return request.app.state.replay.list_for_user(
+        user.id, limit=limit, offset=offset, mode=mode, favorite_only=favorite
+    )
 
 
 @router.get("/replays/{game_id}")

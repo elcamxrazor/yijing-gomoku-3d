@@ -29,7 +29,11 @@ button { color: inherit; cursor: pointer; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:disabled { cursor: not-allowed; opacity: .38; }
 button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-offset: 3px; }
-[hidden] { display: none !important; }
+/* 默认：hidden 立即消失。
+   例外：带 data-fade 的组件需要「先播完退场再隐藏」，不能加 !important，
+   否则 !important 会在过渡开始前就把 display 打成 none，动画根本没机会跑。 */
+[hidden]:not([data-fade]) { display: none !important; }
+[data-fade][hidden] { display: none; }
 .icon { width: 20px; height: 20px; flex: 0 0 auto; }
 
 /* ------------------------------------------------------------------ */
@@ -408,7 +412,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 /* 弹窗（沿用原有视觉，只做少量对齐）                                */
 /* ------------------------------------------------------------------ */
 .modal { width: min(430px, calc(100vw - 30px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 36px; border: 1px solid #fff9; border-radius: 19px; background: #f9f8f3; color: var(--ink); box-shadow: 0 30px 100px rgba(29, 40, 31, .25); }
-.modal::backdrop { background: rgba(33, 42, 35, .43); backdrop-filter: blur(5px); }
+/* 遮罩开/关都要有过渡：open 用关键帧淡入，close 时 dialog 会被移出 top layer，
+   必须靠 display/overlay 的 allow-discrete 让它多活一会儿把 opacity 过渡完，
+   否则背景会「一下子变亮」。 */
+.modal::backdrop {
+  background: rgba(33, 42, 35, .43);
+  backdrop-filter: blur(5px);
+  opacity: 1;
+  transition: opacity .22s ease, display .22s allow-discrete, overlay .22s allow-discrete;
+}
+.modal:not([open])::backdrop { opacity: 0; }
 .modal[open] { animation: modal-in .22s ease-out; }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .modal-close { position: absolute; right: 14px; top: 14px; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: #92978f; }
@@ -713,6 +726,23 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .replay-row-main .stone-avatar { width: 13px; height: 13px; }
 .replay-row-vs { color: #a2a79e; font-size: 9px; font-weight: 400; padding: 0 2px; }
 .replay-row-meta { grid-column: 1; color: #8a9087; font-size: 9.5px; letter-spacing: .04em; }
+.replay-item { position: relative; }
+/* 给右侧的星标留出位置，避免和「胜/负」徽标叠在一起。 */
+.replay-item .replay-row { padding-right: 44px; }
+.replay-item.leaving { opacity: 0; transform: translateX(8px); transition: opacity .2s ease, transform .2s ease; }
+.replay-fav {
+  position: absolute; top: 50%; right: 9px; transform: translateY(-50%);
+  display: grid; place-items: center; width: 27px; height: 27px;
+  border: 0; border-radius: 50%; background: transparent; color: #b7b0a0;
+  cursor: pointer; transition: color .16s, background .16s, transform .14s;
+}
+.replay-fav .icon { width: 14px; height: 14px; }
+.replay-fav:hover { background: rgba(167, 138, 93, .15); color: #a78a5d; transform: translateY(-50%) scale(1.08); }
+.replay-fav:active { transform: translateY(-50%) scale(.96); }
+.replay-fav.on { color: #c79a3f; }
+.replay-fav.on .icon { fill: currentColor; }
+.replay-fav:disabled { opacity: .5; cursor: default; }
+
 .replay-row-flag {
   grid-row: 1 / span 2; grid-column: 2; align-self: center;
   padding: 3px 8px; border-radius: 999px; font-size: 9px; letter-spacing: .06em;
@@ -898,8 +928,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .setting-hint { margin: 11px 0 0; min-height: 18px; color: #8a9087; font-size: 10px; line-height: 1.7; }
 
 
-.replay-tabs { grid-template-columns: repeat(3, 1fr); margin: 0 0 12px; }
-.replay-tabs button { padding: 8px 0; font-size: 10.5px; }
+/* 四个页签（全部 / 已收藏 / 与好友 / 与 AI）：排成一行比折两行清楚。 */
+.replay-tabs { grid-template-columns: repeat(4, 1fr); margin: 0 0 12px; }
+.replay-tabs button { padding: 8px 2px; font-size: 10.5px; white-space: nowrap; }
+@media (max-width: 360px) { .replay-tabs button { font-size: 9.5px; letter-spacing: -.01em; } }
 
 /* 每一行左侧的对局类型徽标：与好友是绿的、与 AI 是蓝的 */
 .replay-kind {
@@ -1052,7 +1084,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
   border: 1px solid rgba(62, 85, 71, .3); background: rgba(62, 85, 71, .08);
   font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #44544a; cursor: pointer;
 }
+.replay-keep { gap: 5px; }
+.replay-keep .icon { width: 12px; height: 12px; }
 .replay-keep:hover { background: rgba(62, 85, 71, .16); }
+.replay-keep.on { color: #8a6a24; border-color: rgba(199, 154, 63, .55); background: rgba(199, 154, 63, .16); }
+.replay-keep.on:hover { background: rgba(199, 154, 63, .26); }
+.replay-keep.on .icon { fill: currentColor; }
 .replay-keep:disabled { opacity: .55; cursor: default; }
 
 /* ================================================================== */
@@ -1110,6 +1147,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 }
 .presence-alert[hidden] { opacity: 0; transform: translate(-50%, -6px); }
 
+/* 电台卡片：收起时上移淡出（原来只有进场动画，关掉是硬切） */
+.radio-card {
+  transition: opacity .18s ease, transform .18s ease, display .18s allow-discrete;
+}
+.radio-card[hidden] { opacity: 0; transform: translateY(-8px) scale(.98); }
+
 /* 结算徽记：弹入 */
 .result-emblem { animation: emblem-pop .42s cubic-bezier(.2, .8, .2, 1); }
 @keyframes emblem-pop {
@@ -1127,12 +1170,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 }
 
 /* 商城条目 / 复盘列表 / 名片战绩：依次淡入（backwards 不占用最终样式） */
-.shop-item, .replay-row, .profile-stat { animation: list-item-in .22s ease backwards; }
-.shop-item:nth-child(2), .replay-row:nth-child(2), .profile-stat:nth-child(2) { animation-delay: .035s; }
-.shop-item:nth-child(3), .replay-row:nth-child(3), .profile-stat:nth-child(3) { animation-delay: .07s; }
-.shop-item:nth-child(4), .replay-row:nth-child(4), .profile-stat:nth-child(4) { animation-delay: .105s; }
-.shop-item:nth-child(5), .replay-row:nth-child(5), .profile-stat:nth-child(5) { animation-delay: .14s; }
-.shop-item:nth-child(6), .replay-row:nth-child(6), .profile-stat:nth-child(6) { animation-delay: .175s; }
+.shop-item, .replay-item, .profile-stat { animation: list-item-in .22s ease backwards; }
+.shop-item:nth-child(2), .replay-item:nth-child(2), .profile-stat:nth-child(2) { animation-delay: .035s; }
+.shop-item:nth-child(3), .replay-item:nth-child(3), .profile-stat:nth-child(3) { animation-delay: .07s; }
+.shop-item:nth-child(4), .replay-item:nth-child(4), .profile-stat:nth-child(4) { animation-delay: .105s; }
+.shop-item:nth-child(5), .replay-item:nth-child(5), .profile-stat:nth-child(5) { animation-delay: .14s; }
+.shop-item:nth-child(6), .replay-item:nth-child(6), .profile-stat:nth-child(6) { animation-delay: .175s; }
 @keyframes list-item-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }

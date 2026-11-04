@@ -88,8 +88,8 @@ class ReplayService:
             "rule": getattr(game, "rule", None) or "freestyle",
             "status": game.status,
             "winner": game.winner,
-            # 棋谱保留策略：默认 30 天清理；勾选「永久储存」后豁免。
-            "keepForever": bool(game.keep_forever),
+            # 收藏状态：收藏的棋谱永久保留；没收藏的按 30 天滚动清理。
+            "favorite": bool(game.keep_forever),
             "winReason": game.win_reason,
             "moveCount": len(moves),
             # 这局从第几手开始（> 0 表示它本身就是从残局接手的练习局）。
@@ -119,6 +119,7 @@ class ReplayService:
         limit: int = 20,
         offset: int = 0,
         mode: str | None = None,
+        favorite_only: bool = False,
     ) -> dict:
         """列出我参与过的、已经结束的棋局（新的在前）。
 
@@ -138,6 +139,8 @@ class ReplayService:
             )
             if wanted:
                 query = query.where(Game.mode == wanted)
+            if favorite_only:
+                query = query.where(Game.keep_forever.is_(True))
             rows = list(session.scalars(
                 query.order_by(Game.updated_at.desc()).limit(limit).offset(offset)
             ).unique())
@@ -146,10 +149,15 @@ class ReplayService:
                 "limit": limit,
                 "offset": offset,
                 "mode": wanted,
+                "favorite": favorite_only,
             }
 
-    def keep_forever(self, user_id: int, game_id: str) -> bool:
-        """把棋局标记为永久保存。幂等；非参与者视为不存在（与读取口径一致）。"""
+    def set_favorite(self, user_id: int, game_id: str, favorite: bool) -> bool:
+        """收藏 / 取消收藏一局棋谱。幂等；非参与者视为不存在（与读取口径一致）。
+
+        取消收藏只是把旗标放回 False，不需要额外的清理动作——30 天滚动清理每次
+        扫描的都是「没收藏」的棋局，旗标一落，这局就自动回到清理范围里。
+        """
         with self.db.session() as session:
             game = session.get(Game, game_id)
             if (
@@ -158,8 +166,8 @@ class ReplayService:
                 or str(user_id) not in {game.black_player_id, game.white_player_id}
             ):
                 raise ReplayError("REPLAY_NOT_FOUND", "棋谱不存在")
-            game.keep_forever = True
-            return True
+            game.keep_forever = favorite
+            return favorite
 
     def get(self, user_id: int, game_id: str) -> dict:
         """单局棋谱：摘要 + 完整着法序列。"""

@@ -161,12 +161,16 @@ export class AuthClient {
     }
   }
 
-  /** 棋谱永久保存（POST /api/games/replays/{id}/keep）。 */
-  async keepReplay(gameId: string): Promise<void> {
+  /**
+   * 收藏 / 取消收藏棋谱。
+   * 收藏（POST）后永久保留；取消（DELETE）后回到 30 天滚动清理的范围内。
+   * 两个方向都幂等，返回服务端确认后的最终状态。
+   */
+  async favoriteReplay(gameId: string, favorite: boolean): Promise<boolean> {
     let response: Response;
     try {
       response = await fetch(`${this.baseUrl}/api/games/replays/${encodeURIComponent(gameId)}/keep`, {
-        method: 'POST',
+        method: favorite ? 'POST' : 'DELETE',
         credentials: 'include',
       });
     } catch {
@@ -174,8 +178,15 @@ export class AuthClient {
     }
     if (!response.ok) {
       const data: unknown = await response.json().catch(() => null);
-      throw new AuthError(this.errorMessage(data) ?? '永久保存失败，请稍后再试', response.status);
+      throw new AuthError(
+        this.errorMessage(data) ?? (favorite ? '收藏失败，请稍后再试' : '取消收藏失败，请稍后再试'),
+        response.status,
+      );
     }
+    const data: unknown = await response.json().catch(() => null);
+    return data && typeof data === 'object' && 'favorite' in data
+      ? Boolean((data as { favorite: unknown }).favorite)
+      : favorite;
   }
 
   /** 购买商城商品（POST /api/shop/purchase）；扣费与解锁都在服务端。 */

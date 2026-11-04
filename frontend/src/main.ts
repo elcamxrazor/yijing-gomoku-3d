@@ -158,7 +158,7 @@ class YijingApp {
   // ---- 复盘 ----
   private readonly replays = new ReplayClient();
   /** 复盘列表的分类页签：全部 / 与好友 / 与 AI。 */
-  private replayTab: 'all' | 'ai' | 'online' = 'all';
+  private replayTab: 'all' | 'favorite' | 'ai' | 'online' = 'all';
   /** 正在复盘的棋谱；null 表示不在复盘中。 */
   private replay: ReplayRecord | null = null;
   /** 当前摆到第几手（0 = 空盘）。 */
@@ -373,7 +373,7 @@ class YijingApp {
     required('replay-last').addEventListener('click', () => this.seekReplay(Number.MAX_SAFE_INTEGER));
     required('replay-toggle').addEventListener('click', () => this.toggleReplay());
     required('replay-ai').addEventListener('click', () => void this.requestReplaySuggestion());
-    required('replay-keep').addEventListener('click', () => void this.keepReplayForever());
+    required('replay-keep').addEventListener('click', () => void this.toggleCurrentReplayFavorite());
     required('replay-continue').addEventListener('click', () => this.openContinueDialog());
     required('continue-sides').addEventListener('click', (event) => {
       const button = event.target instanceof Element
@@ -409,12 +409,20 @@ class YijingApp {
         ? event.target.closest<HTMLButtonElement>('[data-replay-tab]')
         : null;
       const value = tab?.dataset.replayTab;
-      if (value === 'all' || value === 'ai' || value === 'online') this.setReplayTab(value);
+      if (value === 'all' || value === 'favorite' || value === 'ai' || value === 'online') {
+        this.setReplayTab(value);
+      }
     });
     required('replay-list').addEventListener('click', (event) => {
-      const row = event.target instanceof Element
-        ? event.target.closest<HTMLButtonElement>('[data-replay-id]')
-        : null;
+      const target = event.target instanceof Element ? event.target : null;
+      // 收藏按钮在行内、但不在行按钮里（按钮不能嵌套按钮）：先处理它，再处理「打开」。
+      const favButton = target?.closest<HTMLButtonElement>('[data-fav-id]');
+      if (favButton) {
+        const favId = favButton.dataset.favId;
+        if (favId) void this.toggleReplayFavorite(favId, favButton);
+        return;
+      }
+      const row = target?.closest<HTMLButtonElement>('[data-replay-id]');
       const gameId = row?.dataset.replayId;
       if (gameId) void this.startReplay(gameId);
     });
@@ -2435,8 +2443,8 @@ class YijingApp {
     required('replay-empty').hidden = true;
     required('replay-list').innerHTML = '<li class="replay-loading">正在读取棋谱…</li>';
     try {
-      const mode = this.replayTab === 'all' ? undefined : this.replayTab;
-      const items = await this.replays.list(20, 0, mode);
+      const mode = this.replayTab === 'ai' || this.replayTab === 'online' ? this.replayTab : undefined;
+      const items = await this.replays.list(20, 0, mode, this.replayTab === 'favorite');
       this.renderReplayList(items);
     } catch (error) {
       required('replay-list').innerHTML = '';
@@ -2445,7 +2453,7 @@ class YijingApp {
     }
   }
 
-  private setReplayTab(tab: 'all' | 'ai' | 'online'): void {
+  private setReplayTab(tab: 'all' | 'favorite' | 'ai' | 'online'): void {
     if (this.replayTab === tab) return;
     this.replayTab = tab;
     this.renderReplayTabs();
@@ -2466,8 +2474,13 @@ class YijingApp {
     list.innerHTML = '';
     const empty = required('replay-empty');
     empty.hidden = items.length > 0;
-    const scope = this.replayTab === 'ai' ? '与 AI 的' : this.replayTab === 'online' ? '与好友的' : '';
-    empty.innerHTML = `还没有可以复盘的${scope}棋局。<br>下完一局之后再来。`;
+    const scope = this.replayTab === 'ai' ? '与 AI 的'
+      : this.replayTab === 'online' ? '与好友的'
+        : this.replayTab === 'favorite' ? '收藏的'
+          : '';
+    empty.innerHTML = this.replayTab === 'favorite'
+      ? '还没有收藏的棋局。<br>在复盘播放条上点「收藏」，这局就会永久留在列表里。'
+      : `还没有可以复盘的${scope}棋局。<br>下完一局之后再来。`;
     for (const item of items) {
       const black = item.players.black?.name ?? '黑方';
       const white = item.players.white?.name ?? '白方';
@@ -2488,6 +2501,7 @@ class YijingApp {
       const flag = item.winner === 0 ? '和棋' : won ? '胜' : '负';
 
       const row = document.createElement('li');
+      row.className = 'replay-item';
       row.innerHTML =
         `<button class="replay-row" type="button" data-replay-id="${escapeHtml(item.id)}">` +
         `<span class="replay-row-main">` +
@@ -2496,7 +2510,12 @@ class YijingApp {
         `<span class="replay-row-vs">对</span><i class="stone-avatar white"></i>${escapeHtml(white)}</span>` +
         `<span class="replay-row-flag${won ? ' win' : ''}">${flag}</span>` +
         `<span class="replay-row-meta">${escapeHtml(meta)}</span>` +
-        `</button>`;
+        `</button>` +
+        `<button class="replay-fav${item.favorite ? ' on' : ''}" type="button"` +
+        ` data-fav-id="${escapeHtml(item.id)}" data-favorite="${item.favorite ? '1' : '0'}"` +
+        ` aria-pressed="${item.favorite ? 'true' : 'false'}"` +
+        ` title="${item.favorite ? '取消收藏（回到 30 天自动清理）' : '收藏这局棋谱，永久保留'}"` +
+        ` aria-label="${item.favorite ? '取消收藏' : '收藏'}">${icon('star')}</button>`;
       list.append(row);
     }
   }
@@ -2546,7 +2565,7 @@ class YijingApp {
    * 棋盘差分、最后一手标记、五连高亮、落子动画全部复用同一套代码。
    * 复盘和实战的棋盘因此不可能长得不一样——这比再写一条渲染分支可靠得多。
    */
-  private renderReplayFrame(): void {
+  private renderReplayFrame(landColor?: 1 | 2): void {
     const record = this.replay;
     if (!record) return;
 
@@ -2554,6 +2573,17 @@ class YijingApp {
     const index = clampIndex(this.replayIndex, total);
     this.replayIndex = index;
     const atEnd = total > 0 && index >= total;
+
+    // 落子音交给「棋子落到棋盘、涟漪冒出来」那一刻，和实战同一套时序；
+    // 拖进度条一次补多颗子时只响一声。
+    let played = false;
+    const onStoneLand = landColor
+      ? (color: 1 | 2) => {
+          if (played) return;
+          played = true;
+          this.sounds.play(color === 1 ? 'black' : 'white');
+        }
+      : undefined;
 
     this.scene.setSnapshot({
       id: `replay:${record.id}`,
@@ -2576,7 +2606,7 @@ class YijingApp {
       moveCount: index,
       canUndo: false,
       aiThinking: false,
-    });
+    }, onStoneLand);
     // 翻回有建议的那一手时重亮提示环（环本身 6 秒自动消散，重进局面要补一次）。
     if (this.replaySuggestion?.ply === index) {
       this.scene.showHint(this.replaySuggestion.row, this.replaySuggestion.col);
@@ -2625,48 +2655,104 @@ class YijingApp {
       this.renderReplayControls();
       return;
     }
-    if (next > this.replayIndex) this.playReplayStepSound(record, next);
+    const forward = next > this.replayIndex;
     this.replayIndex = next;
-    this.renderReplayFrame();
-  }
-
-  /** 复盘前进一步的落子音：刚被摆上盘的那颗子的颜色决定用黑子音还是白子音。 */
-  private playReplayStepSound(record: ReplayRecord, toIndex: number): void {
-    const move = record.moves[toIndex - 1];
-    if (move) this.sounds.play(move.color === 1 ? 'black' : 'white');
+    this.renderReplayFrame(forward ? record.moves[next - 1]?.color : undefined);
   }
 
   // -----------------------------------------------------------------
   // 复盘 AI 评估：纯手动（点按钮才碰引擎）+ 服务端缓存 + 前端缓存
   // -----------------------------------------------------------------
 
-  /** 把当前复盘的棋局标记为永久保存（豁免 30 天清理）。 */
-  private async keepReplayForever(): Promise<void> {
-    const record = this.replay;
-    if (!record || record.keepForever) return;
-    const button = required<HTMLButtonElement>('replay-keep');
+  /**
+   * 列表里的星标：收藏 / 取消收藏。
+   * 按钮自己记着当前状态（`data-favorite`），所以同一个处理器兼管两个方向；
+   * 从「已收藏」页签里取消后，这一行立刻淡出并从列表移除。
+   */
+  private async toggleReplayFavorite(gameId: string, button: HTMLButtonElement): Promise<void> {
+    if (button.disabled) return;
+    const next = button.dataset.favorite !== '1';
+    if (!next && !(await this.confirmUnfavorite())) return;
     button.disabled = true;
     try {
-      await this.auth.keepReplay(record.id);
-      record.keepForever = true;
-      this.renderReplayKeep();
-      toast('已永久保存这局棋谱');
+      const favorite = await this.auth.favoriteReplay(gameId, next);
+      button.dataset.favorite = favorite ? '1' : '0';
+      button.classList.toggle('on', favorite);
+      button.setAttribute('aria-pressed', String(favorite));
+      button.title = favorite ? '取消收藏（回到 30 天自动清理）' : '收藏这局棋谱，永久保留';
+      button.setAttribute('aria-label', favorite ? '取消收藏' : '收藏');
+      button.disabled = false;
+      // 正在复盘的若是同一局，播放条上的按钮一起同步。
+      if (this.replay?.id === gameId) {
+        this.replay.favorite = favorite;
+        this.renderReplayKeep();
+      }
+      toast(favorite ? '已收藏，这局棋谱永久保留' : '已取消收藏，回到 30 天自动清理');
+      if (!favorite && this.replayTab === 'favorite') {
+        const item = button.closest('.replay-item');
+        if (item) {
+          item.classList.add('leaving');
+          window.setTimeout(() => {
+            item.remove();
+            if (!required('replay-list').childElementCount) this.renderReplayList([]);
+          }, 200);
+        }
+      }
     } catch (error) {
       button.disabled = false;
-      toast(this.errorMessage(error) || '永久保存失败，请稍后再试', 'error');
+      toast(this.errorMessage(error) || '操作失败，请稍后再试', 'error');
     }
   }
 
-  /** 永久保存按钮的显隐与文案。 */
+  /** 取消收藏前的确认：它会让棋谱回到 30 天自动清理的范围内，属于不可逆的「放手」。 */
+  private confirmUnfavorite(): Promise<boolean> {
+    return confirmAction(
+      '取消收藏这局棋谱？',
+      '取消后它不再永久保留，会回到 30 天自动清理的范围——30 天前的棋局将在下次清理时被删除。期间仍可正常复盘。',
+      '取消收藏',
+    );
+  }
+
+  /** 复盘播放条上的收藏按钮：已收藏时再点一次即取消。 */
+  private async toggleCurrentReplayFavorite(): Promise<void> {
+    const record = this.replay;
+    if (!record) return;
+    const button = required<HTMLButtonElement>('replay-keep');
+    if (button.disabled) return;
+    const next = record.favorite !== true;
+    if (!next && !(await this.confirmUnfavorite())) return;
+    button.disabled = true;
+    try {
+      const favorite = await this.auth.favoriteReplay(record.id, next);
+      record.favorite = favorite;
+      this.renderReplayKeep();
+      toast(favorite ? '已收藏，这局棋谱永久保留' : '已取消收藏，回到 30 天自动清理');
+    } catch (error) {
+      button.disabled = false;
+      toast(
+        this.errorMessage(error) || (next ? '收藏失败，请稍后再试' : '取消收藏失败，请稍后再试'),
+        'error',
+      );
+    }
+  }
+
+  /** 收藏按钮的显隐与文案（收藏 ↔ 已收藏，点一次切换）。 */
   private renderReplayKeep(): void {
     const button = required<HTMLButtonElement>('replay-keep');
     if (!this.replay) {
       button.hidden = true;
       return;
     }
-    button.hidden = this.replay.keepForever === true;
-    button.textContent = this.replay.keepForever ? '已永久保存' : '永久储存';
-    button.disabled = this.replay.keepForever === true;
+    const favorite = this.replay.favorite === true;
+    const label = required('replay-keep-label');
+    button.hidden = false;
+    button.disabled = false;
+    button.classList.toggle('on', favorite);
+    button.setAttribute('aria-pressed', String(favorite));
+    button.title = favorite
+      ? '已收藏：点击取消，棋局回到 30 天自动清理'
+      : '收藏这局棋谱，永久保留';
+    label.textContent = favorite ? '已收藏' : '收藏';
   }
 
   private requestReplaySuggestion(): void {
@@ -2767,8 +2853,7 @@ class YijingApp {
       return;
     }
     this.replayIndex += 1;
-    this.playReplayStepSound(record, this.replayIndex);
-    this.renderReplayFrame();
+    this.renderReplayFrame(record.moves[this.replayIndex - 1]?.color);
   }
 
   private stopReplayTimer(): void {

@@ -20,6 +20,7 @@ const paths = {
   shop: '<path d="M4 9h16l-1-5H5L4 9Z"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M9 20v-6h6v6"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.3 7.3L4 20l1.7-5.7A8 8 0 1 1 21 12Z"/>',
   replay: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="m10 9 5 3-5 3Z"/>',
+  star: '<path d="m12 3.4 2.65 5.36 5.92.86-4.28 4.17 1.01 5.9L12 16.9l-5.3 2.79 1.01-5.9-4.28-4.17 5.92-.86Z"/>',
   play: '<path d="m8 5 11 7-11 7V5Z"/>',
   pause: '<path d="M9 5v14M15 5v14"/>',
   first: '<path d="M6 5v14"/><path d="m19 5-9 7 9 7V5Z"/>',

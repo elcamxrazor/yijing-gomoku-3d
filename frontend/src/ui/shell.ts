@@ -73,7 +73,7 @@ export function renderShell(): string {
       </div>
     </header>
 
-    <div class="radio-card" id="radio-card" hidden>
+    <div class="radio-card" id="radio-card" data-fade hidden>
       <p class="radio-eyebrow">网络电台</p>
       <p class="radio-track" id="radio-track">正在准备…</p>
       <p class="radio-artist" id="radio-artist" hidden></p>
@@ -92,7 +92,7 @@ export function renderShell(): string {
       </div>
     </div>
 
-    <div class="presence-alert" id="presence-alert" hidden>
+    <div class="presence-alert" id="presence-alert" data-fade hidden>
       <span class="presence-alert-dot"></span>
       <span class="presence-alert-text" id="presence-alert-text">对手已断线</span>
       <strong class="presence-alert-timer" id="presence-alert-timer">02:00</strong>
@@ -129,7 +129,7 @@ export function renderShell(): string {
       </div>
     </section>
 
-    <section class="float-card" id="waiting-card" hidden>
+    <section class="float-card" id="waiting-card" data-fade hidden>
       <span class="waiting-symbol"><i></i><i></i></span><p class="eyebrow">ROOM IS READY</p>
       <h2>静候一位棋友</h2><p class="float-subtitle">分享房间号，与好友在此相逢</p>
       <button class="room-code-large" id="copy-room-code" title="复制房间号"><span id="waiting-room-code">——</span>${icon('copy')}</button>
@@ -137,14 +137,14 @@ export function renderShell(): string {
       <button class="text-button" id="waiting-leave">取消等待</button>
     </section>
 
-    <section class="float-card" id="challenge-sent" hidden>
+    <section class="float-card" id="challenge-sent" data-fade hidden>
       <span class="waiting-symbol"><i></i><i></i></span><p class="eyebrow">CHALLENGE SENT</p>
       <h2 id="challenge-sent-title">等待回应</h2>
       <p class="float-subtitle">已向「<strong id="challenge-sent-name">棋友</strong>」发出约战<br><span id="challenge-sent-timer">30</span> 秒内没有回应会自动撤回</p>
       <button class="text-button" id="challenge-cancel">撤回约战</button>
     </section>
 
-    <section class="float-card" id="result-card" hidden>
+    <section class="float-card" id="result-card" data-fade hidden>
       <span class="result-emblem" id="result-emblem">五</span><p class="eyebrow">GAME COMPLETE</p>
       <h2 id="result-title">本局已落幕</h2><p class="float-subtitle" id="result-description">谢谢你的专注与投入</p>
       <div class="result-stats"><span>总手数<strong id="result-moves">0</strong></span><i></i><span>获胜方式<strong id="result-reason">五子连珠</strong></span></div>
@@ -176,7 +176,7 @@ export function renderShell(): string {
           <button class="dock-phrase" id="phrase-toggle" type="button" aria-expanded="false" aria-controls="phrase-panel" title="快捷短语">
             ${icon('chat')}<span>短语</span>
           </button>
-          <div class="phrase-panel" id="phrase-panel" role="menu" aria-label="快捷短语" hidden>
+          <div class="phrase-panel" id="phrase-panel" role="menu" aria-label="快捷短语" data-fade hidden>
             ${PHRASES.map((phrase) => `<button class="phrase-chip" data-phrase="${phrase.id}" type="button" role="menuitem">${phrase.text}</button>`).join('')}
           </div>
         </div>
@@ -328,8 +328,9 @@ export function renderShell(): string {
       <span class="modal-feature-icon small">${icon('replay')}</span>
       <p class="eyebrow">REVIEW</p><h2>复盘</h2>
       <p class="modal-subtitle">挑一局已经下完的棋，一手一手看回来。</p>
-      <div class="segmented replay-tabs" id="replay-tabs" role="tablist" aria-label="对局类型">
+      <div class="segmented replay-tabs" id="replay-tabs" role="tablist" aria-label="棋谱分类">
         <button type="button" role="tab" data-replay-tab="all" class="active">全部</button>
+        <button type="button" role="tab" data-replay-tab="favorite">已收藏</button>
         <button type="button" role="tab" data-replay-tab="online">与好友</button>
         <button type="button" role="tab" data-replay-tab="ai">与 AI</button>
       </div>
@@ -338,7 +339,7 @@ export function renderShell(): string {
       <p class="form-error" id="replay-error" role="alert"></p>
     </dialog>
 
-    <div class="replay-bar" id="replay-bar" hidden>
+    <div class="replay-bar" id="replay-bar" data-fade hidden>
       <div class="replay-bar-head">
         <!-- 返回做成实心按钮放在最左：复盘时对局界面的其它出口都被收起了，
              只剩这一条路，弱化成文字链会让人找不到怎么回到首页。 -->
@@ -367,7 +368,10 @@ export function renderShell(): string {
         <!-- 一键续弈：把「当前这一步」当残局起点，开一局人机继续下。
              复盘看到一半想「这手我要是这么走会怎样」，不用另开一局重新摆。 -->
         <button type="button" class="replay-step replay-continue" id="replay-continue" title="从当前这一步开始，与 AI 继续下完">续弈</button>
-        <button type="button" class="replay-step replay-keep" id="replay-keep" title="把这局棋谱永久保存，不参与 30 天自动清理">永久储存</button>
+        <!-- 收藏是一枚可切换的状态：已收藏时再点一次即取消，棋局回到 30 天清理。 -->
+        <button type="button" class="replay-step replay-keep" id="replay-keep" title="收藏这局棋谱，永久保留" aria-pressed="false">
+          ${icon('star')}<span id="replay-keep-label">收藏</span>
+        </button>
       </div>
       <p class="replay-hint">拖动进度条可回看任意一手 · 按 Esc 也能退出</p>
     </div>

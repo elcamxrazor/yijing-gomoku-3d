@@ -36,9 +36,15 @@ export class ReplayClient {
    *   过滤放在服务端做，客户端只按 20 条一页取——本地过滤会变成
    *   「取 20 条再筛掉一半」，翻两页就只剩个位数。
    */
-  async list(limit = 20, offset = 0, mode?: 'ai' | 'online'): Promise<ReplaySummary[]> {
+  async list(
+    limit = 20,
+    offset = 0,
+    mode?: 'ai' | 'online',
+    favoriteOnly = false,
+  ): Promise<ReplaySummary[]> {
     const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (mode) query.set('mode', mode);
+    if (favoriteOnly) query.set('favorite', 'true');
     const data = await this.request(`/api/games/replays?${query.toString()}`);
     if (!data || typeof data !== 'object' || !('replays' in data)) return [];
     const replays = (data as ReplayListResponse).replays;

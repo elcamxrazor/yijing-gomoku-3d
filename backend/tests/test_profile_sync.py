@@ -53,7 +53,7 @@ def test_preferences_roundtrip(client):
     assert anonymous.get("/api/users/me/preferences").status_code == 401
 
 
-def test_replay_keep_forever(client):
+def test_replay_favorite_toggle(client):
     register(client, "keeper")
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
@@ -66,15 +66,32 @@ def test_replay_keep_forever(client):
         receive_request(ws, "r")
 
     detail = client.get(f"/api/games/replays/{game_id}").json()
-    assert detail["keepForever"] is False
+    assert detail["favorite"] is False
 
-    kept = client.post(f"/api/games/replays/{game_id}/keep")
-    assert kept.status_code == 200 and kept.json()["keepForever"] is True
+    favorited = client.post(f"/api/games/replays/{game_id}/keep")
+    assert favorited.status_code == 200 and favorited.json()["favorite"] is True
 
-    # 幂等：再标一次仍成功。
+    # 幂等：再收藏一次仍成功。
     assert client.post(f"/api/games/replays/{game_id}/keep").status_code == 200
-    assert client.get(f"/api/games/replays/{game_id}").json()["keepForever"] is True
+    assert client.get(f"/api/games/replays/{game_id}").json()["favorite"] is True
+
+    # 「已收藏」页签只看得到收藏过的棋局。
+    favorite_tab = client.get("/api/games/replays?favorite=true").json()["replays"]
+    assert [item["id"] for item in favorite_tab] == [game_id]
+    assert client.get("/api/games/replays?favorite=false").json()["replays"]
+
+    # 取消收藏：旗标落回 False，棋局回到 30 天滚动清理的范围（不是立刻删除）。
+    unfavorited = client.delete(f"/api/games/replays/{game_id}/keep")
+    assert unfavorited.status_code == 200 and unfavorited.json()["favorite"] is False
+    assert client.get(f"/api/games/replays/{game_id}").json()["favorite"] is False
+    assert client.get("/api/games/replays?favorite=true").json()["replays"] == []
+    # 取消后依然能复盘——删除由清理任务按时间判断，不是由取消动作触发。
+    assert client.get(f"/api/games/replays/{game_id}").status_code == 200
+
+    # 幂等：重复取消也成功。
+    assert client.delete(f"/api/games/replays/{game_id}/keep").status_code == 200
 
     # 路人的棋谱按不存在处理。
     register(client, "stranger")
     assert client.post(f"/api/games/replays/{game_id}/keep").status_code == 404
+    assert client.delete(f"/api/games/replays/{game_id}/keep").status_code == 404

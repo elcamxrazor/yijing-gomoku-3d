@@ -29,8 +29,8 @@ export interface ReplaySummary {
   yourColor: PlayerColor | null;
   createdAt: string | null;
   finishedAt: string | null;
-  /** 永久保存（豁免 30 天清理）。 */
-  keepForever?: boolean;
+  /** 已收藏：收藏的棋谱永久保留，不参与 30 天滚动清理。 */
+  favorite?: boolean;
 }
 
 /** 一手棋。`index` 是从 0 开始的序号，与服务端 `move_index` 一致。 */
