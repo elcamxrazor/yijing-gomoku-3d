@@ -18,7 +18,6 @@ export function renderShell(): string {
     <div class="scene-layer">
       <div id="scene-container"></div>
       <div class="scene-vignette"></div>
-      <div class="phrase-layer" id="phrase-layer" aria-live="polite"></div>
     </div>
 
     <div class="opening-overlay" id="opening-overlay" hidden aria-live="polite">
@@ -338,6 +337,10 @@ export function renderShell(): string {
       </div>
       <p class="replay-hint">拖动进度条可回看任意一手 · 按 Esc 也能退出</p>
     </div>
+
+    <!-- 短语气泡必须挂在场景层之外：场景层是 z-index:0 的独立层叠上下文，
+         放在里面会被顶栏 / 叙事行等 HUD 压住（手机上尤其明显）。 -->
+    <div class="phrase-layer" id="phrase-layer" aria-live="polite"></div>
 
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
   `;

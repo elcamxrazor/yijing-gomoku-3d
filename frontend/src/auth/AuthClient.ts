@@ -14,11 +14,12 @@ export interface ProfileStats {
   winrate: number | null;
 }
 
-/** 查看他人名片时的公开资料：身份 + 战绩（不含钱包）。 */
+/** 查看他人名片时的公开资料：身份 + 战绩 + 积分（积分是公开分数，不含钱包细节）。 */
 export interface PublicProfile extends ProfileStats {
   id: string;
   name: string;
   guest: boolean;
+  points: number;
 }
 
 /** 积分钱包（服务端权威）。 */
@@ -77,6 +78,7 @@ export class AuthClient {
       id: typeof data.id === 'string' ? data.id : userId,
       name: typeof data.name === 'string' ? data.name : '玩家',
       guest: data.guest === true,
+      points: typeof data.points === 'number' ? data.points : 0,
     };
   }
 

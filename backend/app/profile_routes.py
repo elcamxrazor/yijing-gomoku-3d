@@ -73,9 +73,10 @@ def my_stats(request: Request) -> dict:
 
 @router.get("/{user_id}/stats")
 def user_stats(request: Request, user_id: int) -> dict:
-    """查看任意玩家的公开战绩（大厅 / 对局中看别人名片用）。
+    """查看任意玩家的公开资料（大厅 / 对局中看别人名片用）。
 
-    只回身份与战绩，**不回积分钱包**——钱包是私人的。
+    回身份、战绩与**积分**（积分是公开分数，和战绩一起展示，便于互看段位）；
+    **不回钱包的私人部分**（已解锁商品 / 装备皮肤）——那些才是私人信息。
     需要先登录（游客会话也可），避免被匿名枚举。
     """
     settings = request.app.state.settings
@@ -90,6 +91,7 @@ def user_stats(request: Request, user_id: int) -> dict:
             "id": str(target.id),
             "name": target.name,
             "guest": bool(target.guest),
+            "points": target.points or 0,
             **_compute_stats(session, str(target.id)),
         }
 

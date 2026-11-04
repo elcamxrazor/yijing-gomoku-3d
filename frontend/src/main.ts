@@ -790,6 +790,8 @@ class YijingApp {
       // 接受后棋局快照可能先于回执到达，先认领再发送，否则快照会被当成无关推送丢弃。
       this.awaitingRemoteGame = true;
       this.challengeJustAccepted = true;
+      // 大厅弹窗立刻收起：等快照回来再关会有一瞬间盖着棋盘。
+      this.closeLobbyDialog();
       toast('正在开局…');
     }
     if (!this.trySend('challenge.respond', { challengeId: invite.challengeId, accept })) {
@@ -815,6 +817,18 @@ class YijingApp {
     if (dialog.open) dialog.close();
   }
 
+  /**
+   * 收起大厅 / 模式选择弹窗。
+   *
+   * 在大厅里应邀（或对方接受我的约战）之后，棋局已经开局，但大厅弹窗还开着，
+   * 会整个盖在棋盘上——看起来就像「应邀的窗口不消失」。进入新对局时必须收掉它；
+   * 关闭本身会触发 `close` 监听，顺带停止大厅订阅。
+   */
+  private closeLobbyDialog(): void {
+    const dialog = required<HTMLDialogElement>('game-dialog');
+    if (dialog.open) dialog.close();
+  }
+
   private closeSentCard(): void {
     this.outgoing = null;
     this.stopSentTicker();
@@ -825,6 +839,7 @@ class YijingApp {
     if (result.status === 'accepted') {
       this.closeSentCard();
       this.closeChallengeDialog();
+      this.closeLobbyDialog();
       if (result.gameId && this.snapshot?.id === result.gameId) return;
       this.awaitingRemoteGame = true;
       this.challengeJustAccepted = true;
@@ -1024,6 +1039,9 @@ class YijingApp {
   private setSnapshot(snapshot: AnyGameSnapshot): void {
     const previous = this.snapshot;
     this.snapshot = snapshot;
+    // 换了一盘新棋（含大厅应邀、观战、房间加入）：大厅 / 模式弹窗必须收掉，
+    // 否则它会浮在棋盘上，看起来像「窗口没消失」。
+    if (previous?.id !== snapshot.id) this.closeLobbyDialog();
     // 引擎思考面板属于「自己在下的人机局」与「本地对弈的手动 AI 分析」；
     // 观战/联机一律收起，换到另一盘棋时旧分析也已过时，一并清掉。
     const engineEligible = !snapshot.spectating && (snapshot.mode === 'ai' || snapshot.mode === 'local');
@@ -1150,7 +1168,7 @@ class YijingApp {
       if (!this.coin) this.coin = new CoinScene(wrap, { reducedMotion: this.reducedMotion });
       await this.coin.play({ firstSeat: result.firstSeat, nameA: result.seats.a.name, nameB: result.seats.b.name });
       if (token !== this.openingToken) return;
-      required('opening-result').textContent = `硬币落地 · ${escapeHtml(firstName)} 先手`;
+      required('opening-result').textContent = `硬币落地 · ${firstName} 先手`;
       this.sounds.play('join');
     }
     // agreement 不抛硬币，先手结果由 render() 写进 opening-status。
@@ -1158,10 +1176,27 @@ class YijingApp {
     const holdMs = this.reducedMotion ? 950 : (result.method === 'coin' ? 2400 : 1700);
     await this.delay(holdMs);
     if (token !== this.openingToken) return;
-    this.finishOpening();
+    await this.finishOpening();
   }
 
-  private finishOpening(): void {
+  /**
+   * 收场：先让整块开局遮罩淡出、硬币轻微缩小，再释放 WebGL 与隐藏。
+   *
+   * 直接 `hidden` + `dispose()` 会让画面「啪」地跳回棋盘，所以退场要留一点时间。
+   * 减少动态效果时跳过动画，立即收场。
+   */
+  private async finishOpening(): Promise<void> {
+    const overlay = required('opening-overlay');
+    const wrap = required('coin-canvas-wrap');
+    const animate = !this.reducedMotion && !overlay.hidden;
+    if (animate) {
+      overlay.classList.add('leaving');
+      wrap.classList.add('leaving');
+      await this.delay(280);
+      overlay.classList.remove('leaving');
+      wrap.classList.remove('leaving');
+    }
+
     const coin = this.coin;
     this.coin = null;
     this.coinActive = false;
@@ -1595,7 +1630,7 @@ class YijingApp {
    * 打开个人名片。
    *
    * 不传 target（或 target 就是自己）→ 看自己：战绩 + 积分；
-   * 传别人的 id → 看对方的公开名片：**只有战绩，不暴露钱包**。
+   * 传别人的 id → 看对方的公开名片：战绩 + 积分（积分是公开分数，与看自己一致）。
    * 大厅玩家名、对局中的双方名字都走这里。
    */
   private async openProfileCard(target?: { id: string; name: string }): Promise<void> {
@@ -1621,14 +1656,15 @@ class YijingApp {
       } else {
         const profile = await this.auth.statsFor(target!.id);
         required('profile-card-name').textContent = profile.name;
-        this.renderProfileStats(profile, null);
+        // 看别人也展示积分（公开分数），布局与看自己完全一致。
+        this.renderProfileStats(profile, profile.points);
       }
     } catch (error) {
       body.innerHTML = `<p class="form-error">${escapeHtml(this.errorMessage(error))}</p>`;
     }
   }
 
-  /** 渲染名片的战绩网格；`points` 为 null 表示不显示积分（看他人的名片）。 */
+  /** 渲染名片的战绩网格；`points` 为 null 时该格隐藏（正常情况下自己与他人都传具体数值）。 */
   private renderProfileStats(stats: ProfileStats, points: number | null): void {
     const rate = stats.winrate === null ? '—' : `${Math.round(stats.winrate * 100)}%`;
     const pointsCell = points === null
@@ -1957,6 +1993,16 @@ class YijingApp {
    */
   private showPhraseBubble(event: PhraseEvent): void {
     const layer = required('phrase-layer');
+
+    // 同时最多显示两条：第三条进来时先让最早的那条平滑收起。
+    // 只统计仍在显示的气泡（已在收起动画里的不再算数），避免连发时误杀新的。
+    const visible = Array.from(layer.children).filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && !child.classList.contains('collapsing'),
+    );
+    for (const stale of visible.slice(0, Math.max(0, visible.length - 1))) {
+      this.dismissPhraseBubble(stale);
+    }
+
     const bubble = document.createElement('div');
     bubble.className = `phrase-bubble ${event.color === 2 ? 'white' : 'black'}`;
 
@@ -1971,19 +2017,30 @@ class YijingApp {
     bubble.append(name, text);
     layer.append(bubble);
 
-    // 同时最多显示两条：第三条进来时挤掉最早的一条，既看得清又不刷屏。
-    while (layer.childElementCount > 2) {
-      layer.firstElementChild?.remove();
-    }
-
-    // 下一帧再加 show，触发淡入；短暂展示后淡出并移除。
-    requestAnimationFrame(() => bubble.classList.add('show'));
-    const hideTimer = window.setTimeout(() => {
-      bubble.classList.remove('show');
-      const removeTimer = window.setTimeout(() => bubble.remove(), 300);
-      this.phraseTimers.push(removeTimer);
-    }, 2600);
+    // 强制一次回流，让浏览器立刻算好「插入态」的样式；否则紧接着加 .show 时
+    // 过渡/动画可能被跳过，气泡会突兀地直接出现。
+    void bubble.offsetHeight;
+    bubble.classList.add('show');
+    const hideTimer = window.setTimeout(() => this.dismissPhraseBubble(bubble), 2600);
     this.phraseTimers.push(hideTimer);
+  }
+
+  /**
+   * 收起一条气泡：先把它当前高度固定成像素值，再过渡到 0（连同 padding、边框、
+   * 下外边距一起归零），下面那条就会匀速滑上来。如果直接 `remove()`，flex 重排
+   * 是瞬间的，看起来就是「突然往上跳一格」。
+   */
+  private dismissPhraseBubble(bubble: HTMLElement): void {
+    if (bubble.classList.contains('collapsing')) return;
+    bubble.classList.remove('show');
+    const height = bubble.offsetHeight;
+    // 先锁成像素高度并强制回流，否则 auto→0 无法插值，动画不会发生。
+    bubble.style.height = `${height}px`;
+    void bubble.offsetHeight;
+    bubble.classList.add('collapsing');
+    bubble.style.height = '0px';
+    const removeTimer = window.setTimeout(() => bubble.remove(), 320);
+    this.phraseTimers.push(removeTimer);
   }
 
   /** 退出对局时清理所有短语气泡计时器与 DOM，避免计时器泄漏。 */

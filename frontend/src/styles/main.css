@@ -561,9 +561,31 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .phrase-chip:active { transform: translateY(0); }
 
 /* 气泡纵向排列：最多两条同时可见、互不重叠；新气泡追加在下方。 */
-.phrase-layer { position: absolute; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 17%; }
-.phrase-bubble { position: relative; transform: translateY(-8px); display: inline-flex; align-items: center; gap: 9px; max-width: min(82vw, 460px); padding: 11px 17px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .6); background: var(--glass-strong); backdrop-filter: blur(18px) saturate(1.1); box-shadow: 0 12px 40px rgba(45, 52, 43, .18); color: #2d342f; font-size: 13px; opacity: 0; transition: opacity .25s ease, transform .25s ease; }
-.phrase-bubble.show { opacity: 1; transform: translateY(0); }
+/* 气泡层：挂在 #app 下（不在 .scene-layer 里），层级要高过顶栏与叙事行。
+   偏移量必须用 px/vw 的 clamp——padding 的百分比是按「宽度」算的，窄屏上
+   17% 只剩 60 来像素，气泡会直接压到顶栏上。 */
+.phrase-layer { position: absolute; inset: 0; z-index: 30; pointer-events: none; overflow: hidden; display: flex; flex-direction: column; align-items: center; gap: 0; padding-top: clamp(104px, 17vw, 220px); }
+.phrase-bubble { position: relative; flex: none; margin-bottom: 8px; overflow: hidden; transform: translateY(-8px); display: inline-flex; align-items: center; gap: 9px; max-width: min(82vw, 460px); padding: 11px 17px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .6); background: var(--glass-strong); backdrop-filter: blur(18px) saturate(1.1); box-shadow: 0 12px 40px rgba(45, 52, 43, .18); color: #2d342f; font-size: 13px; opacity: 0; transition: opacity .25s ease, transform .25s ease, height .26s ease, margin-bottom .26s ease, padding-top .26s ease, padding-bottom .26s ease, border-top-width .26s ease, border-bottom-width .26s ease; }
+.phrase-bubble.show { opacity: 1; transform: translateY(0); animation: phrase-in .36s cubic-bezier(.2, .85, .25, 1) backwards; }
+/* 进场用关键帧而不是 transition：transition 需要一个「已知的初始样式」，
+   元素刚插入那一帧浏览器还没算出它，过渡就白跑了（表现为突然出现）。
+   backwards 只覆盖动画开始前，结束后交回 .show 的基础样式，退场仍走 transition。 */
+@keyframes phrase-in {
+  0% { opacity: 0; transform: translateY(-12px) scale(.94); filter: blur(3px); }
+  62% { opacity: 1; transform: translateY(2px) scale(1.012); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+/* 收起态：高度（由 JS 固定成像素值）→0，padding/边框/外边距一并归零，
+   下面那条就会跟着匀速滑上来。 */
+.phrase-bubble.collapsing {
+  opacity: 0;
+  transform: translateY(-6px) scale(.97);
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-width: 0;
+  border-bottom-width: 0;
+}
 .phrase-bubble .phrase-bubble-name { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; flex: 0 0 auto; }
 .phrase-bubble.black .phrase-bubble-name { background: #2d342f; }
 .phrase-bubble.white .phrase-bubble-name { background: #8a8f86; }
@@ -571,7 +593,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 
 @media (max-width: 680px) {
   .phrase-chip { font-size: 11px; padding: 6px 11px; }
-  .phrase-layer { padding-top: 14%; }
   .phrase-bubble { font-size: 12px; padding: 10px 14px; }
   .shop-item { gap: 10px; padding: 11px; }
   .shop-item .shop-swatch { width: 34px; height: 34px; }
@@ -730,7 +751,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 
 /* 复盘时播放条占着底部，提示条要再抬高一个身位，否则会压住播放条的标题行 */
 .is-replaying .toast-region { bottom: 154px; }
-.replay-controls { display: flex; align-items: center; gap: 4px; }
+/* 控件行允许换行：窄屏上「步进按钮 + 进度条 + AI 评估 + 永久储存」放不下一行时，
+   多出来的按钮落到第二行，而不是顶出播放条外面。 */
+.replay-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; row-gap: 6px; }
 .replay-step {
   display: grid; place-items: center; width: 34px; height: 34px; flex: none;
   border: 0; border-radius: 50%; background: transparent; color: #55645a;
@@ -886,7 +909,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .opening-coin { display: grid; place-items: center; gap: 16px; }
 .coin-canvas-wrap { width: min(420px, 84vw, 50vh); aspect-ratio: 1; }
 .coin-canvas-wrap canvas { display: block; }
-.opening-result { margin: 0; font-size: 16px; font-weight: 600; color: var(--ink); letter-spacing: .02em; }
+/* 结果文字：先占好一行的高度。否则空 <p> 落地后突然长出字，整块内容变高，
+   居中的硬币会被往上顶一下（手机上尤其明显）。 */
+.opening-result { margin: 0; min-height: 1.5em; font-size: 16px; font-weight: 600; color: var(--ink); letter-spacing: .02em; }
 
 /* 窄屏：选择按钮堆叠、硬币稍小 */
 @media (max-width: 420px) {
@@ -943,24 +968,98 @@ button:focus-visible, input:focus-visible { outline: 2px solid #698272; outline-
 .setting-toggle { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 12px; color: #44544a; }
 .setting-toggle input { accent-color: #3e5547; }
 
-/* 复盘播放条：永久储存按钮 */
+/* 复盘播放条：永久储存按钮。
+   注意它同时带 .replay-step（那一族是 34×34 的圆图标），所以必须在这里
+   把宽度、display 改回来，否则文字的宽度被锁死在 34px 里，会竖排挤成一条。 */
 .replay-keep {
-  flex: none; padding: 4px 10px; border-radius: 999px;
+  flex: none; width: auto; min-width: 0; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 12px; border-radius: 999px; white-space: nowrap; line-height: 1;
   border: 1px solid rgba(62, 85, 71, .3); background: rgba(62, 85, 71, .08);
   font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #44544a; cursor: pointer;
 }
 .replay-keep:hover { background: rgba(62, 85, 71, .16); }
 .replay-keep:disabled { opacity: .55; cursor: default; }
 
-/* 设置项：开关行 */
-.setting-toggle { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 12px; color: #44544a; }
-.setting-toggle input { accent-color: #3e5547; }
+/* ================================================================== */
+/* 动效层：为已有的淡入补齐退场，并给静态元素补轻量反馈                */
+/* 说明：`display` / `overlay` 用 `allow-discrete`，让 hidden/close()  */
+/* 也先播完退场再真正消失；不支持该语法的浏览器会退化为瞬时切换。      */
+/* ================================================================== */
 
-/* 复盘播放条：永久储存按钮 */
-.replay-keep {
-  flex: none; padding: 4px 10px; border-radius: 999px;
-  border: 1px solid rgba(62, 85, 71, .3); background: rgba(62, 85, 71, .08);
-  font-size: 10px; font-weight: 600; letter-spacing: .04em; color: #44544a; cursor: pointer;
+/* 开局遮罩 + 硬币退场：整块淡出，硬币缩小并轻微模糊 */
+.opening-overlay.leaving { animation: opening-fade-out .28s ease forwards; }
+@keyframes opening-fade-out { from { opacity: 1; } to { opacity: 0; } }
+.coin-canvas-wrap { transition: transform .28s ease, filter .28s ease; }
+.coin-canvas-wrap.leaving { transform: scale(.9); filter: blur(2px); }
+.opening-card { transition: transform .28s ease; }
+.opening-overlay.leaving .opening-card { transform: translateY(8px) scale(.96); }
+
+/* 所有 <dialog>：open() 有 modal-in，close() 补淡出 + 下沉 */
+.modal {
+  transition:
+    opacity .2s ease,
+    transform .2s ease,
+    display .2s allow-discrete,
+    overlay .2s allow-discrete;
 }
-.replay-keep:hover { background: rgba(62, 85, 71, .16); }
-.replay-keep:disabled { opacity: .55; cursor: default; }
+.modal:not([open]) { opacity: 0; transform: translateY(8px) scale(.985); }
+.modal::backdrop { animation: backdrop-in .22s ease-out; }
+@keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* 悬浮卡片（等待 / 结算）：收起时淡出并轻微缩小 */
+.float-card {
+  transition: opacity .24s ease, transform .24s ease, display .24s allow-discrete;
+}
+.float-card[hidden] { opacity: 0; transform: translate(-50%, -46%) scale(.96); }
+
+/* 快捷短语面板：收起时淡出并下沉 */
+.phrase-panel {
+  transition: opacity .16s ease, transform .16s ease, display .16s allow-discrete;
+}
+.phrase-panel[hidden] { opacity: 0; transform: translateY(6px) scale(.98); }
+
+/* 复盘播放条：进场从下方滑入，收起时下滑淡出 */
+.replay-bar:not([hidden]) { animation: replay-bar-in .24s ease-out; }
+@keyframes replay-bar-in {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+.replay-bar {
+  transition: opacity .22s ease, transform .22s ease, display .22s allow-discrete;
+}
+.replay-bar[hidden] { opacity: 0; transform: translate(-50%, 10px); }
+
+/* 断线横幅：收起时上移淡出 */
+.presence-alert {
+  transition: opacity .2s ease, transform .2s ease, display .2s allow-discrete;
+}
+.presence-alert[hidden] { opacity: 0; transform: translate(-50%, -6px); }
+
+/* 结算徽记：弹入 */
+.result-emblem { animation: emblem-pop .42s cubic-bezier(.2, .8, .2, 1); }
+@keyframes emblem-pop {
+  0% { transform: scale(.55); opacity: 0; }
+  62% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 开局选项选中：轻微脉冲，给「已选定」一个确认感 */
+.opening-choice.chosen { animation: choice-pulse .34s ease; }
+@keyframes choice-pulse {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+
+/* 商城条目 / 复盘列表 / 名片战绩：依次淡入（backwards 不占用最终样式） */
+.shop-item, .replay-row, .profile-stat { animation: list-item-in .22s ease backwards; }
+.shop-item:nth-child(2), .replay-row:nth-child(2), .profile-stat:nth-child(2) { animation-delay: .035s; }
+.shop-item:nth-child(3), .replay-row:nth-child(3), .profile-stat:nth-child(3) { animation-delay: .07s; }
+.shop-item:nth-child(4), .replay-row:nth-child(4), .profile-stat:nth-child(4) { animation-delay: .105s; }
+.shop-item:nth-child(5), .replay-row:nth-child(5), .profile-stat:nth-child(5) { animation-delay: .14s; }
+.shop-item:nth-child(6), .replay-row:nth-child(6), .profile-stat:nth-child(6) { animation-delay: .175s; }
+@keyframes list-item-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}

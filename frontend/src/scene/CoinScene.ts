@@ -34,7 +34,6 @@ export class CoinScene {
   private rafId = 0;
   private running = false;
   private startTime = 0;
-  private lastTimestamp = 0;
 
   /** 抛起段：从静止到最高点再落回地面。 */
   private readonly tossDuration = 1.05;
@@ -46,16 +45,18 @@ export class CoinScene {
   private readonly coinRadius = 1;
   private readonly coinHeight = 0.22;
   private readonly tossHeight = 3.0;
-  private spinX = 0;
-  private spinY = 0;
-  private readonly spinSpeedX = 16;
-  private readonly spinSpeedY = 11;
-  /** 下落末段收束到的落点朝向（与最终朝向只差整圈）。 */
+  /**
+   * 抛起期间绕 X 的整圈数（翻面）与绕 Y 的整圈数（自旋）。
+   *
+   * 关键：用**整圈数**而不是「自由累加角速度再在末段硬掰到目标」。
+   * 整圈数保证 p=1 时角度恰好落在最终朝向（mod 2π），旋转角随进度平滑收束，
+   * 文字不会在落地前被突然拧 90°。
+   */
+  private readonly turnsX = 3;
+  private readonly turnsY = 2;
+  /** 落点朝向：目标朝向 + 整圈。 */
   private landRotX = 0;
   private landRotY = 0;
-  private landingCaptured = false;
-  private blendFromRotX = 0;
-  private blendFromRotY = 0;
   private targetRotX = 0;
   private resolvePlay: (() => void) | null = null;
   private reducedMotion = false;
@@ -213,11 +214,9 @@ export class CoinScene {
     this.buildFaces(result.nameA, result.nameB);
     // 最终朝向：a 面朝上 = 旋转 0；b 面朝上 = 绕 X 翻 180°。
     this.targetRotX = result.firstSeat === 'a' ? 0 : Math.PI;
-    this.spinX = 0;
-    this.spinY = 0;
-    this.landRotX = 0;
-    this.landRotY = 0;
-    this.landingCaptured = false;
+    // 落点朝向 = 目标朝向 + 整圈；p=1 时角度恰好落在这里，无需末段硬掰。
+    this.landRotX = this.targetRotX + Math.PI * 2 * this.turnsX;
+    this.landRotY = Math.PI * 2 * this.turnsY;
     this.coin.position.set(0, this.coinHeight / 2, 0);
     this.coin.rotation.set(0, 0, 0);
     this.coin.scale.set(1, 1, 1);
@@ -236,7 +235,6 @@ export class CoinScene {
     }
 
     this.startTime = performance.now();
-    this.lastTimestamp = this.startTime;
     this.running = true;
     this.applyCamera(this.tossPos, this.tossLook);
     this.loop(this.startTime);
@@ -247,12 +245,10 @@ export class CoinScene {
 
   private readonly loop = (timestamp: number): void => {
     if (!this.running || this.disposed) return;
-    const dt = Math.min((timestamp - this.lastTimestamp) / 1000, 0.05);
-    this.lastTimestamp = timestamp;
     const elapsed = (timestamp - this.startTime) / 1000;
 
     if (elapsed < this.tossDuration) {
-      this.updateToss(elapsed / this.tossDuration, dt);
+      this.updateToss(elapsed / this.tossDuration);
     } else if (elapsed < this.tossDuration + this.landDuration) {
       this.applyLandingPose((elapsed - this.tossDuration) / this.landDuration);
     } else if (elapsed < this.tossDuration + this.landDuration + this.dollyDuration) {
@@ -277,32 +273,27 @@ export class CoinScene {
     if (this.running) this.rafId = requestAnimationFrame(this.loop);
   };
 
-  /** 抛起段：抛物线 + 高速自旋；最后 18% 把朝向收束到落点姿态，避免落地后还在转。 */
-  private updateToss(p: number, dt: number): void {
+  /**
+   * 抛起段：抛物线 + 翻面 / 自旋。
+   *
+   * 旋转角是 p 的**连续解析函数**，并且以整圈数收束：
+   * `rotation.x(1) = 目标朝向 + 2πN`、`rotation.y(1) = 2πM`。
+   * 因此落地那一刻朝向已经精确对齐，不需要在末段把欧拉角硬掰到目标，
+   * 文字只会随自旋连续变慢，不会突然转 90°。额外的 Y/Z 抖动在 p=1 时归零，
+   * 既让旋转不那么「机械」，又不影响落点朝向。
+   */
+  private updateToss(p: number): void {
     const y = this.coinHeight / 2 + this.tossHeight * (1 - (2 * p - 1) ** 2);
+    // 轻微减速：前段快、接近落点稍缓，但角度始终连续。
+    const ease = 1 - (1 - p) ** 1.6;
+    const wobbleY = 0.12 * Math.sin(p * Math.PI * 3) * (1 - p);
+    const wobbleZ = 0.14 * Math.sin(p * Math.PI) * Math.sin(p * Math.PI * 5);
 
-    if (p < 0.82) {
-      this.spinX += this.spinSpeedX * dt;
-      this.spinY += this.spinSpeedY * dt;
-      this.coin.rotation.set(this.spinX, this.spinY, 0);
-    } else {
-      if (!this.landingCaptured) {
-        this.landingCaptured = true;
-        this.blendFromRotX = this.spinX;
-        this.blendFromRotY = this.spinY;
-        // 收束到与最终朝向只差整圈的最近角度，视觉上不会「倒转半圈」。
-        this.landRotX = this.targetRotX
-          + Math.round((this.spinX - this.targetRotX) / (Math.PI * 2)) * Math.PI * 2;
-        this.landRotY = Math.round(this.spinY / (Math.PI * 2)) * Math.PI * 2;
-      }
-      const k = (p - 0.82) / 0.18;
-      const e = k * k * (3 - 2 * k);
-      this.coin.rotation.set(
-        this.blendFromRotX + (this.landRotX - this.blendFromRotX) * e,
-        this.blendFromRotY + (this.landRotY - this.blendFromRotY) * e,
-        0,
-      );
-    }
+    this.coin.rotation.set(
+      this.landRotX * ease,
+      this.landRotY * ease + wobbleY,
+      wobbleZ,
+    );
     this.coin.position.y = y;
     this.coin.scale.set(1, 1, 1);
   }
@@ -342,7 +333,8 @@ export class CoinScene {
     // 晃动：指数衰减 + 3 次左右的摆动，落地后很快收住。
     const decay = Math.exp(-5.5 * u);
     const wobbleX = 0.085 * decay * Math.sin(u * Math.PI * 2 * 3.2);
-    const wobbleZ = 0.04 * decay * Math.sin(u * Math.PI * 2 * 2.4 + 1.1);
+    // 相位取 0：u=0 时晃动为 0，和抛起段结尾无缝衔接，不会有一帧的跳变。
+    const wobbleZ = 0.04 * decay * Math.sin(u * Math.PI * 2 * 2.4);
 
     this.coin.rotation.set(this.landRotX + wobbleX, this.landRotY, wobbleZ);
     this.coin.position.y = (this.coinHeight / 2) * squash + bounce;

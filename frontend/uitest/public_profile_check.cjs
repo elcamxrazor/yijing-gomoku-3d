@@ -1,4 +1,5 @@
-/* 大厅互看名片：两个游客进大厅，A 点 B 的昵称 → 应弹出 B 的名片（无积分）。 */
+/* 大厅互看名片：两个游客进大厅，A 点 B 的昵称 → 应弹出 B 的名片，
+ * 且布局与看自己完全一致（六格网格：总场次/胜率/积分/胜/负/和棋），并显示积分。 */
 const { chromium } = require('playwright');
 const BASE = process.env.BASE || 'http://127.0.0.1:25562';
 
@@ -26,7 +27,6 @@ const BASE = process.env.BASE || 'http://127.0.0.1:25562';
     [...document.querySelectorAll('.lobby-row')].map((row) => ({
       name: row.querySelector('.lobby-fullname')?.textContent ?? '',
       self: row.classList.contains('self'),
-      clickable: row.querySelector('.lobby-name')?.classList.contains('clickable') ?? false,
     })),
   );
   console.log('ROWS:', JSON.stringify(rows));
@@ -38,13 +38,30 @@ const BASE = process.env.BASE || 'http://127.0.0.1:25562';
     name.click();
     return true;
   });
-  await a.waitForTimeout(1200);
-  const card = await a.evaluate(() => ({
-    open: document.querySelector('#profile-card')?.open ?? false,
-    name: document.querySelector('#profile-card-name')?.textContent ?? '',
-    body: document.querySelector('#profile-card-body')?.innerText ?? '',
-  }));
+  await a.waitForTimeout(1500);
+
+  const card = await a.evaluate(() => {
+    const body = document.querySelector('#profile-card-body');
+    const cells = [...document.querySelectorAll('#profile-card-body .profile-stat')];
+    const pointsCell = document.querySelector('#profile-card-body .profile-stat.points');
+    return {
+      open: document.querySelector('#profile-card')?.open ?? false,
+      name: document.querySelector('#profile-card-name')?.textContent ?? '',
+      bodyText: body?.innerText ?? '',
+      cellCount: cells.length,
+      hasPointsCell: !!pointsCell,
+      pointsValue: pointsCell?.querySelector('strong')?.textContent ?? null,
+      pointsLabel: pointsCell?.querySelector('span')?.textContent ?? null,
+    };
+  });
   console.log('CLICKED:', clicked, 'CARD:', JSON.stringify(card));
   await a.screenshot({ path: 'uitest/out/profile_other.png' });
+
+  const openOk = card.open === true;
+  const hasPoints = card.hasPointsCell === true && card.pointsLabel === '积分' && card.pointsValue !== null && card.pointsValue !== '';
+  const cellOk = card.cellCount === 6; // 与自己名片一致：总场次/胜率/积分/胜/负/和棋
+  console.log('open:', openOk, '| hasPoints:', hasPoints, '(', card.pointsValue, ') | cellCount==6:', cellOk);
+  console.log('VERDICT:', openOk && hasPoints && cellOk ? 'PASS' : 'FAIL');
   await browser.close();
-})();
+  process.exit(openOk && hasPoints && cellOk ? 0 : 1);
+})().catch((e) => { console.error('FATAL:', e && e.message ? e.message : e); process.exit(2); });

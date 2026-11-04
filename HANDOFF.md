@@ -795,6 +795,29 @@ AI 对局沿用传统模式（人类执自选颜色、黑先），本地对战�
   **部署注意**：后端 `SPAStaticFiles` 对 index.html 只有 etag/last-modified、无
   `Cache-Control`，改前端务必让用户硬刷新（Ctrl+Shift+R）。
 
+### 3.22 批次十三：他人名片显示积分 + 布局与自己对齐（2026-11-04）
+
+- **现象**：联机大厅点别人昵称看名片，内容排列和自己名片不同、且不显示积分。
+- **根因**：`openProfileCard(target)` 的「他人」分支调 `renderProfileStats(profile, null)`，
+  把 `points` 传 `null` → 渲染时**省略整个「积分」格**，于是他人是 5 格、自己是 6 格
+  （3 列网格下 5 格末行缺一格，视觉错位），且积分数为 0。原设计注释写「不暴露钱包」，
+  但积分是公开分数，用户明确要求展示。
+- **改动**：
+  - 后端 `backend/app/profile_routes.py` 的 `GET /api/users/{id}/stats` 原来只回
+    `id/name/guest + 战绩`，现在追加 `points: target.points or 0`（**只加积分这一公开分数，
+    钱包的私人部分——已解锁商品 / 装备皮肤——仍不回**）。
+  - 前端 `src/auth/AuthClient.ts`：`PublicProfile` 接口加 `points: number`；`statsFor()`
+    解析并回落 0。
+  - 前端 `src/main.ts`：`openProfileCard` 的他人分支改传 `profile.points`（与看自己同一套
+    `renderProfileStats`，网格顺序、配色完全一致）。同步清掉「不显示积分（看他人的名片）」
+    等旧注释；`profile_routes.py` 的端点 docstring 也改为「回身份、战绩与积分，不回钱包私人部分」。
+  - README 同步更正：功能列表「个人名片」、API 表 `/api/users/{id}/stats` 描述。
+- **部署**：纯前端改动走 `dist` 读盘；但**后端也改了**，必须重启后端（`:25562` 是单一端口
+  python 服务，读 `backend/.env`、伺服 `frontend/dist`）。本机该服务由环境自动托管，杀掉会
+  自启，自启进程会加载最新 `.py`，因此改完后端代码 + `npm run build` 后重启即生效。
+- **验证**：`frontend/uitest/public_profile_check.cjs`（两游客进大厅，A 点 B 昵称 → 断言
+  卡片 `open`、含「积分」格且数值为 10000、`.profile-stat` 恰 6 格）实测 `VERDICT: PASS`。
+
 ## 4. 素材来源与授权
 
 **全部来自 [Poly Haven](https://polyhaven.com)，CC0 授权（可商用、可修改、无需署名）**。
@@ -1011,7 +1034,7 @@ cd frontend && npm run build
 
 ---
 
-## 9. 给接手AI的实操提示
+## 9. 给接手同事的实操提示
 
 1. **先读 `README.md`**，它是完整的中文文档（功能/架构/环境变量/Yixin 配置/部署/FAQ/版权）。
 2. **改场景**：主要在 `frontend/src/scene/`。对外接口集中在 `GomokuScene.ts` 的 4 个方法
@@ -1041,7 +1064,7 @@ cd frontend && npm run build
 
 ---
 
-## 10. 总结
+## 10. 一句话总结
 
 这是一个**功能完整、已通过 157 项测试（后端 72 + 前端 85）、真实 Yixin 引擎验证过的联机五子棋**。核心对局逻辑
 （规则/联机/AI 桥接/认证）已经稳定，3D 场景也已是 CC0 真实素材 + PBR + HDRI。
