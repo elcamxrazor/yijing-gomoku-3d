@@ -64,7 +64,7 @@ def test_profile_stats_requires_auth(app):
 
 
 def test_public_profile_reports_identity_but_not_wallet(app):
-    """大厅 / 对局里看别人名片：能拿到身份与战绩，但拿不到积分钱包。"""
+    """大厅 / 对局里看别人名片：能拿到身份、战绩与积分（与他人名片布局一致），但钱包解锁列表仍属私人。"""
     with TestClient(app) as alice_client, TestClient(app) as bob_client:
         alice = register(alice_client, "alice")
         register(bob_client, "bob")  # bob 已登录，去看 alice 的名片
@@ -78,8 +78,9 @@ def test_public_profile_reports_identity_but_not_wallet(app):
         assert data["totalGames"] == 0
         assert data["wins"] == data["losses"] == data["draws"] == 0
         assert data["winrate"] is None
-        # 钱包是私人的：公开资料里不能出现积分 / 已解锁。
-        assert "points" not in data
+        # 积分按产品需求在公开名片展示（与他人名片一致）；但钱包解锁列表仍是私人，
+        # 公开资料绝不能出现 unlocked。
+        assert "points" in data and isinstance(data["points"], int)
         assert "unlocked" not in data
 
 
