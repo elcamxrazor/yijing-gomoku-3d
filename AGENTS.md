@@ -39,9 +39,21 @@ cd /d C:\Users\45126\WorkBuddy\3d-yijing-gomoku
 tools\deploy.cmd
 ```
 
-脚本依次做：`HEAD == origin/main` 且工作区干净 → `npm run build` → 写
+脚本依次做：`HEAD == origin/main` 且工作区干净 → **租约硬门禁** → `npm run build` → 写
 `frontend/dist/BUILD_INFO.json`（commit / 时间 / 发布者）→ 重启计划任务。
 **任何前置检查失败就直接退出，不会把半成品打上线**。本地会话不要运行它，也不要自己 build。
+
+**租约硬门禁（2026-11-05 起）**：`tools/deploy.cmd` 会在构建前调用
+`tools/publish_gate.py`（判定逻辑与 `pre-push` 钩子一致）：
+
+- 无 `CLAIM.json`、或租约已过期 → 放行（短任务可直接发布）
+- 有未过期租约且 `AI_SESSION` 等于 owner → 放行（持锁者本人）
+- 有未过期租约但没设 `AI_SESSION` / 不匹配 → **BLOCKED，退出码 1，不构建不重启**
+- `CLAIM.json` 损坏或 python 不可用 → 同样 BLOCKED，绝不静默放行
+
+长任务发布前先 `tools/claim.sh start <名字> <任务>` 并 `set AI_SESSION=<名字>`，
+发完 `tools/claim.sh release`。服务器 `python` 不在 PATH，脚本已用全路径
+`C:\Users\45126\.workbuddy\binaries\python\versions\3.13.12\python.exe` 调用，失效时回退 `python`。
 
 验证：`curl http://127.0.0.1:25562/BUILD_INFO.json` 里的 `commit` 等于 `git rev-parse HEAD`；
 首页 200；首页引用的 `index-*.js` 与 `dist/assets` 文件名一致。

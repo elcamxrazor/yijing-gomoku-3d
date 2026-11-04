@@ -40,8 +40,15 @@ if defined DIRTY (
 )
 echo OK: !HEAD_SHA! 工作区干净
 
-if exist CLAIM.json (
-  echo NOTE: 存在 CLAIM.json 租约，请确认持锁会话已收工。
+rem Publish gate: tools/publish_gate.py runs before build and restart.
+rem For long tasks claim a lease first and set AI_SESSION to the owner name.
+rem Short tasks with no CLAIM.json can publish directly.
+set "PY=C:\Users\45126\.workbuddy\binaries\python\versions\3.13.12\python.exe"
+if not exist "%PY%" set "PY=python"
+"%PY%" tools\publish_gate.py
+if errorlevel 1 (
+  echo BLOCKED: 发布租约门禁未通过，未改动线上进程。
+  exit /b 1
 )
 
 echo ===2/5 构建===
