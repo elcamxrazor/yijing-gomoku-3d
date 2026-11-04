@@ -51,6 +51,7 @@ npm test
 - **不要提交** `frontend/dist/`、`backend/data/*.db`、`backend/_restart.log`
 - 提交后直接 `git push origin main`（origin 已配好凭证，服务器和本机都能推）
 - **推失败的两种情况先换通道，别急着怀疑凭证**：直连不通就加 `https_proxy=http://127.0.0.1:7897`，代理不通就去掉代理；两边都试过还报 `Authentication failed` 才是真凭证问题
+- **两条通道都不通时走 API 兜底**（2026-11-05 实测：直连 `github.com:443` 超时，环境代理对 `github.com` 的 CONNECT 返回 502，但 `api.github.com` 可用）：`python tools/push_via_api.py` 会用 Git Data API 把本地 HEAD 这一笔提交原样同步到远端 `main`，blob / tree / commit 三层逐一比对 SHA，成功后自动更新本地 `origin/main`。**前提**：远端 `main` 正好是 HEAD 的父节点、只有一笔未推送提交；分叉或多笔先手工处理
 - 提交前确认 `git status` 干净，别把半成品和别人未提交的改动一起打进构建
 
 ## 坑

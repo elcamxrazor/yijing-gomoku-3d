@@ -917,6 +917,10 @@ AI 对局沿用传统模式（人类执自选颜色、黑先），本地对战�
   三个依赖顶部 HUD 的 E2E 全绿。改前源码备份在 `.workbuddy/backups/20261105-0040/`。
 - **顺带**：`.gitignore` 忽略 `frontend/uitest/uitest/`（从该目录内跑脚本时，
   相对路径 `uitest/out/...` 会多嵌一层测试截图）。
+- **推送**：本轮 `git push` 两条通道都失败（直连 `github.com:443` 超时；环境代理对
+  `github.com` 的 CONNECT 返回 502，但 `api.github.com` 通）。改用新增的
+  `tools/push_via_api.py` 走 Git Data API 同步，6 个 blob、tree、commit 的 SHA
+  与本地**逐层完全一致**，远端 `main` = 本地 `7416982`。详见 `AGENTS.md`「提交」节。
 
 ## 4. 素材来源与授权
 
